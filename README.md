@@ -419,7 +419,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | Tasks `Bad Request: priority must be one of ...`                     | Status/priority values are case-sensitive: use `Todo / In Progress / Completed` and `High / Medium / Low`.                |
 | Attachment upload fails on Windows Git Bash with `Failed to open`    | Use a relative path (`cd /tmp && curl -F "file=@test.txt" ...`) — Git Bash doesn't translate `/tmp/...` for `@` paths.    |
 | `403 Forbidden` when a PM edits a task                               | The PM is not the owner of that project. Per PRD, PMs only have CRUD on tasks in projects they own.                       |
-| Dokploy deploy fails: `Bind for 0.0.0.0:80 failed: port is already allocated` | You're using `docker-compose.yml` (dev) or have `ports: "80:80"`. Switch to `docker-compose.prod.yml` which uses `expose` only — Traefik routes the domain to the container internally. |
+| Dokploy deploy fails: `Bind for 0.0.0.0:80 failed: port is already allocated` | You're using `docker-compose.yml` (dev) or have a host `ports:` mapping. Switch to `docker-compose.prod.yml` which only `expose`s ports inside the docker network — Traefik routes the domain to the container internally. |
+| Dokploy domain returns "site can't be reached"                       | Open the Domains tab and check **Container Port**: frontend = `3000`, backend = `3001`. Path should be `/`. Then verify DNS A records point to the Dokploy server IP. |
 
 ---
 
@@ -446,13 +447,13 @@ so they never collide with the proxy on host port 80/443.
 # On a Dokploy host — Traefik handles 80/443 automatically:
 docker compose -f docker-compose.prod.yml up -d --build
 
-# On a bare Docker host with nothing else on port 80, run the frontend
-# with a published port via a one-line override:
+# On a bare Docker host with nothing else on port 80, publish 80 -> 3000
+# manually with a one-line override:
 docker compose -f docker-compose.prod.yml \
   -f - <<'EOF' up -d --build
 services:
   frontend:
-    ports: ["80:80"]
+    ports: ["80:3000"]
 EOF
 ```
 
@@ -501,7 +502,7 @@ frontend container reverse-proxies `/api` and `/uploads` to the backend.
 
 | Domain                       | Service Name | Port | HTTPS |
 | ---------------------------- | ------------ | ---: | :---: |
-| `https://your-domain.com`    | **frontend** | `80` |   ✓   |
+| `https://your-domain.com`    | **frontend** | `3000` |   ✓   |
 
 Env: `VITE_API_URL=/api` and `FRONTEND_URL=https://your-domain.com`.
 
@@ -512,7 +513,7 @@ or analytics). Both services get their own domain.
 
 | Domain                                | Service Name | Port   | HTTPS |
 | ------------------------------------- | ------------ | -----: | :---: |
-| `https://web-smart-pm.com`            | **frontend** | `80`   |   ✓   |
+| `https://web-smart-pm.com`            | **frontend** | `3000` |   ✓   |
 | `https://api-smart-pm.com`            | **backend**  | `3001` |   ✓   |
 
 Env:

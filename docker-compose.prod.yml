@@ -59,10 +59,11 @@ services:
       backend:
         condition: service_healthy
     # Expose only on the docker network — Dokploy's Traefik (which owns
-    # host ports 80/443) routes the public domain to this container.
-    # NEVER use `ports: "80:80"` on a Dokploy host: it collides with Traefik.
+    # host ports 80/443) routes the public domain to this container's
+    # internal port. NEVER use `ports: "..."` on a Dokploy host: it
+    # collides with Traefik.
     expose:
-      - "80"
+      - "3000"
     networks:
       - smart-pm
 

@@ -31,12 +31,14 @@ ENV VITE_APP_NAME=$VITE_APP_NAME
 
 RUN npm run build
 
-# ─── Production Stage (Nginx) ─────────────────────────────────
+# ─── Production Stage (Nginx on 3000) ─────────────────────────
 FROM nginx:alpine AS production
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# We serve the SPA on 3000 so the Dokploy domain config can use the
+# same port number it suggests for Node-style apps.
+EXPOSE 3000
 
 CMD ["nginx", "-g", "daemon off;"]
