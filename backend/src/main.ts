@@ -17,11 +17,28 @@ async function bootstrap() {
   mkdirSync(uploadsDir, { recursive: true });
   app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
 
-  // CORS
+  // CORS — supports multiple origins via comma-separated FRONTEND_URL.
+  // e.g. FRONTEND_URL=https://web-smart-pm.com,https://smartpm.nexarift.com,http://localhost:3000
+  // A bare "*" makes the API public (use only for demos).
+  const rawOrigins = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const allowedOrigins = rawOrigins
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, cb) => {
+      // Same-origin requests (curl, Postman, server-to-server) have no `origin` header.
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes('*')) return cb(null, true);
+      const normalized = origin.replace(/\/$/, '');
+      if (allowedOrigins.includes(normalized)) return cb(null, true);
+      return cb(new Error(`Origin ${origin} not allowed by CORS`), false);
+    },
     credentials: true,
   });
+
+  console.log(`🛡️  CORS allowed origins: ${allowedOrigins.join(', ') || '(none)'}`);
 
   // Global validation pipe
   app.useGlobalPipes(

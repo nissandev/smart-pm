@@ -419,6 +419,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | Tasks `Bad Request: priority must be one of ...`                     | Status/priority values are case-sensitive: use `Todo / In Progress / Completed` and `High / Medium / Low`.                |
 | Attachment upload fails on Windows Git Bash with `Failed to open`    | Use a relative path (`cd /tmp && curl -F "file=@test.txt" ...`) — Git Bash doesn't translate `/tmp/...` for `@` paths.    |
 | `403 Forbidden` when a PM edits a task                               | The PM is not the owner of that project. Per PRD, PMs only have CRUD on tasks in projects they own.                       |
+| Browser console: `CORS error` / `Access to XMLHttpRequest blocked`   | Backend's `FRONTEND_URL` doesn't match the origin the SPA is loaded from. Set `FRONTEND_URL=https://your-frontend-domain` (no trailing slash) and redeploy the backend. Multiple origins allowed: comma-separated. |
 | Dokploy deploy fails: `Bind for 0.0.0.0:80 failed: port is already allocated` | You're using `docker-compose.yml` (dev) or have a host `ports:` mapping. Switch to `docker-compose.prod.yml` which only `expose`s ports inside the docker network — Traefik routes the domain to the container internally. |
 | Dokploy domain returns "site can't be reached"                       | Open the Domains tab and check **Container Port**: frontend = `3000`, backend = `3001`. Path should be `/`. Then verify DNS A records point to the Dokploy server IP. |
 
