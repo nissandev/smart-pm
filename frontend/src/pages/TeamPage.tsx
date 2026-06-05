@@ -174,10 +174,12 @@ export default function TeamPage() {
         </>
       )}
 
-      {tab === 'workload' && (
+      {tab === 'workload' && (() => {
+        const workload = dashSummary?.memberWorkload ?? [];
+        return (
         <div className="space-y-6">
           {/* Workload summary table */}
-          {dashSummary?.memberWorkload?.length > 0 && (
+          {workload.length > 0 && (
             <div className="card p-5">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">Workload Summary</h2>
               <div className="overflow-x-auto">
@@ -193,7 +195,7 @@ export default function TeamPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {dashSummary.memberWorkload.map((m: any) => {
+                    {workload.map((m: any) => {
                       const pct = m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0;
                       return (
                         <tr key={m.name} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -321,7 +323,8 @@ export default function TeamPage() {
           )}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

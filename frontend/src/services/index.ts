@@ -37,13 +37,26 @@ export const projectsApi = {
 };
 
 // ── Tasks ─────────────────────────────────────────────────────
+// Input shape sent to the API. Differs from `Task` because `assignedTo`
+// and `project` are sent as plain string IDs, while the populated
+// response shape uses `User` / `Project` objects.
+export interface TaskInput {
+  title?: string;
+  description?: string;
+  project?: string;
+  assignedTo?: string;
+  dueDate?: string;
+  priority?: Task['priority'];
+  status?: Task['status'];
+}
+
 export const tasksApi = {
   getAll: (filters?: Record<string, string>) =>
     api.get<Task[]>('/tasks', { params: filters }),
   getById: (id: string) => api.get<Task>(`/tasks/${id}`),
   getStats: () => api.get('/tasks/stats'),
-  create: (data: Partial<Task> & { project: string }) => api.post<Task>('/tasks', data),
-  update: (id: string, data: Partial<Task>) => api.patch<Task>(`/tasks/${id}`, data),
+  create: (data: TaskInput & { project: string }) => api.post<Task>('/tasks', data),
+  update: (id: string, data: TaskInput) => api.patch<Task>(`/tasks/${id}`, data),
   delete: (id: string) => api.delete(`/tasks/${id}`),
   addComment: (id: string, text: string) => api.post<Task>(`/tasks/${id}/comments`, { text }),
   updateComment: (id: string, commentId: string, text: string) =>

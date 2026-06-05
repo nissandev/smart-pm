@@ -456,32 +456,59 @@ FRONTEND_URL=https://your-domain.com
 ### Deploy to Dokploy
 
 > Common cause of the error **"The service smart-pm not found in the compose"**:
-> Dokploy's *Service Name* field must match an actual service in your
-> compose file (we use `frontend` and `backend`, not `smart-pm`).
+> Dokploy's *Service Name* field (under **Domains**) must match an actual
+> service in your compose file. This project exposes only `frontend` and
+> `backend` — never `smart-pm`.
 
 1. **Create a new "Compose" application** in Dokploy and point it at the GitHub repo.
-2. In the **Compose** tab:
-   - **Compose File**: `docker-compose.prod.yml`
-   - **Compose Path**: `./` (the repo root, where the file lives)
-3. In the **Domains** tab, add your domain and target the **`frontend`** service on **port 80**.
-   *(That's the value to put in any "Service Name" field — it's the only public-facing service.)*
-4. In the **Environment** tab, set:
+2. In the **Provider** tab:
+   - **Compose Path**: `./docker-compose.prod.yml`
+3. In the **Environment** tab, set:
    ```env
    MONGO_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/smartpm?retryWrites=true&w=majority
    JWT_SECRET=<long-random-string>
    JWT_EXPIRES_IN=7d
-   FRONTEND_URL=https://your-domain.com
-   VITE_API_URL=/api
+   FRONTEND_URL=https://your-frontend-domain.com
+   VITE_API_URL=/api               # see "Domain layouts" below
    VITE_APP_NAME=SmartPM
    ```
-5. Click **Deploy**. Dokploy will build both images and bring the stack up.
-   Traefik (built into Dokploy) will route your domain → `frontend:80`, and nginx
-   inside that container will proxy `/api/*` and `/uploads/*` → `backend:3001`.
-6. **Seed the demo users (one-time):**
+4. In the **Domains** tab, pick **one** of the layouts below.
+5. Click **Deploy**. Once the stack is up, seed the demo users once:
    ```bash
-   # on the Dokploy host
    docker exec smart-pm-backend npm run seed
    ```
+
+#### Domain layouts
+
+**Option A — single domain (recommended, simplest)**
+
+Everything (SPA, API, uploads) lives under one hostname; nginx inside the
+frontend container reverse-proxies `/api` and `/uploads` to the backend.
+
+| Domain                       | Service Name | Port | HTTPS |
+| ---------------------------- | ------------ | ---: | :---: |
+| `https://your-domain.com`    | **frontend** | `80` |   ✓   |
+
+Env: `VITE_API_URL=/api` and `FRONTEND_URL=https://your-domain.com`.
+
+**Option B — split frontend / backend domains**
+
+Useful if you want a separate API hostname (e.g. for an existing API gateway
+or analytics). Both services get their own domain.
+
+| Domain                                | Service Name | Port   | HTTPS |
+| ------------------------------------- | ------------ | -----: | :---: |
+| `https://web-smart-pm.com`            | **frontend** | `80`   |   ✓   |
+| `https://api-smart-pm.com`            | **backend**  | `3001` |   ✓   |
+
+Env:
+```env
+FRONTEND_URL=https://web-smart-pm.com               # backend CORS
+VITE_API_URL=https://api-smart-pm.com/api           # baked into the SPA bundle
+```
+
+In this layout the frontend's nginx `/api` proxy is bypassed — the SPA hits
+the backend domain directly. CORS is allowed for `FRONTEND_URL`.
 
 ### Production checklist
 
