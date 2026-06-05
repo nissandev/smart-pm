@@ -419,6 +419,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | Tasks `Bad Request: priority must be one of ...`                     | Status/priority values are case-sensitive: use `Todo / In Progress / Completed` and `High / Medium / Low`.                |
 | Attachment upload fails on Windows Git Bash with `Failed to open`    | Use a relative path (`cd /tmp && curl -F "file=@test.txt" ...`) — Git Bash doesn't translate `/tmp/...` for `@` paths.    |
 | `403 Forbidden` when a PM edits a task                               | The PM is not the owner of that project. Per PRD, PMs only have CRUD on tasks in projects they own.                       |
+| Dokploy deploy fails: `Bind for 0.0.0.0:80 failed: port is already allocated` | You're using `docker-compose.yml` (dev) or have `ports: "80:80"`. Switch to `docker-compose.prod.yml` which uses `expose` only — Traefik routes the domain to the container internally. |
 
 ---
 
@@ -437,9 +438,22 @@ deployments.
 
 ### Quick prod build on any Docker host
 
+The compose file is designed for a host that already has a reverse proxy
+(Dokploy/Traefik, Caddy, Nginx). Both services use `expose` instead of `ports`
+so they never collide with the proxy on host port 80/443.
+
 ```bash
+# On a Dokploy host — Traefik handles 80/443 automatically:
 docker compose -f docker-compose.prod.yml up -d --build
-# Frontend (nginx) on port 80, proxies /api and /uploads to the backend.
+
+# On a bare Docker host with nothing else on port 80, run the frontend
+# with a published port via a one-line override:
+docker compose -f docker-compose.prod.yml \
+  -f - <<'EOF' up -d --build
+services:
+  frontend:
+    ports: ["80:80"]
+EOF
 ```
 
 Required env vars (set in the host shell or a `.env` next to the compose file):
