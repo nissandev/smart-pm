@@ -14,6 +14,7 @@ import {
   LoadingScreen, PriorityBadge, TaskStatusBadge, ConfirmModal, Avatar, Spinner,
 } from '../components/shared';
 import type { Task, TaskStatus, TaskPriority, User, Project, TaskAttachment } from '../types';
+import { canChangeTaskStatus, getTaskEditMode } from '../utils/taskPermissions';
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -97,8 +98,9 @@ export default function TaskDetailPage() {
   const assignedUser = task.assignedTo as User | undefined;
   const project = task.project as Project;
   const overdue = task.status !== 'Completed' && isPast(new Date(task.dueDate));
-  const canManage = me?.role !== 'member' || assignedUser?._id === me?._id;
-  const canDelete = me?.role === 'admin' || (me?.role === 'project_manager');
+  const editMode = getTaskEditMode(task, me);
+  const statusEditable = canChangeTaskStatus(task, me);
+  const canDelete = editMode === 'full';
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -135,7 +137,7 @@ export default function TaskDetailPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <p className="text-xs text-slate-400 mb-1.5">Status</p>
-            {canManage ? (
+            {statusEditable ? (
               <select
                 className="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 value={task.status}

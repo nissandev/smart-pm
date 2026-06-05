@@ -251,6 +251,57 @@ export class ProjectsService {
     return saved;
   }
 
+  /**
+   * Adds a user to project.members when they are not already a member.
+   * Does NOT change project ownership — used when an admin assigns a task
+   * to someone who still needs project access.
+   */
+  async ensureProjectMember(
+    projectId: string,
+    memberId: string,
+    actor: UserDocument,
+  ): Promise<boolean> {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can auto-add members during task assignment');
+    }
+
+    const project = await this.projectModel.findById(projectId);
+    if (!project) throw new NotFoundException('Project not found');
+
+    const memberObjectId = new Types.ObjectId(memberId);
+    if (project.members.some((m) => m.equals(memberObjectId))) {
+      return false;
+    }
+
+    const memberUser = await this.usersService.findById(memberId);
+    if (!memberUser.isActive) {
+      throw new BadRequestException('Cannot add an inactive user to the project');
+    }
+
+    project.members.push(memberObjectId);
+    await project.save();
+
+    await this.activityService.log({
+      actor: (actor as any)._id,
+      actionType: ActionType.MEMBER_ADDED,
+      entityType: 'member',
+      entityId: memberObjectId,
+      description: `${memberUser.name} was added to "${project.name}" (via task assignment)`,
+      project: project._id,
+    });
+
+    await this.notifications.create({
+      recipient: memberObjectId,
+      actor: (actor as any)._id,
+      type: NotificationType.MEMBER_ADDED,
+      title: 'You were added to a project',
+      message: `"${project.name}"`,
+      project: project._id,
+    });
+
+    return true;
+  }
+
   async removeMember(projectId: string, memberId: string, user: UserDocument): Promise<ProjectDocument> {
     const project = await this.projectModel.findById(projectId);
     if (!project) throw new NotFoundException('Project not found');

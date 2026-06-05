@@ -14,6 +14,7 @@ import {
   ConfirmModal, Avatar, EmptyState, Spinner,
 } from '../components/shared';
 import type { Project, Task, TaskPriority, TaskStatus, User, ProjectStatus, Activity } from '../types';
+import { getTaskEditMode } from '../utils/taskPermissions';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -112,9 +113,6 @@ export default function ProjectDetailPage() {
       (typeof project.createdBy === 'object'
         ? (project.createdBy as User)._id
         : project.createdBy) === me._id);
-
-  const canManageTask = () =>
-    me?.role === 'admin' || (me?.role === 'project_manager' && canManage);
 
   const canChangeTaskStatus = (task: Task) => {
     if (me?.role === 'admin' || me?.role === 'project_manager') return true;
@@ -391,25 +389,31 @@ export default function ProjectDetailPage() {
                         </div>
                       )}
 
-                      {/* Edit / Delete (admin / PM only) */}
-                      {canManageTask() && (
-                        <>
-                          <button
-                            className="p-1 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded transition-colors"
-                            onClick={() => setEditingTask(task)}
-                            title="Edit task"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                            onClick={() => setDeletingTask(task)}
-                            title="Delete task"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
+                      {/* Edit / delete — full for owners; delegate (reassign) for assignee PMs */}
+                      {(() => {
+                        const mode = getTaskEditMode(task, me);
+                        if (mode === 'none') return null;
+                        return (
+                          <>
+                            <button
+                              className="p-1 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded transition-colors"
+                              onClick={() => setEditingTask(task)}
+                              title={mode === 'delegate' ? 'Reassign task' : 'Edit task'}
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            {mode === 'full' && (
+                              <button
+                                className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                onClick={() => setDeletingTask(task)}
+                                title="Delete task"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -560,6 +564,7 @@ export default function ProjectDetailPage() {
           projectId={id!}
           members={members}
           task={editingTask}
+          delegateOnly={getTaskEditMode(editingTask, me) === 'delegate'}
           onClose={() => setEditingTask(null)}
           onSuccess={() => {
             qc.invalidateQueries({ queryKey: ['tasks', { project: id }] });
@@ -689,11 +694,12 @@ function EditProjectModal({
 
 // ── TaskFormModal (create & edit) ─────────────────────────────────
 function TaskFormModal({
-  projectId, members, task, onClose, onSuccess,
+  projectId, members, task, delegateOnly = false, onClose, onSuccess,
 }: {
   projectId: string;
   members: User[];
   task?: Task;
+  delegateOnly?: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -710,14 +716,16 @@ function TaskFormModal({
 
   const handle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !dueDate) {
+    if (!delegateOnly && (!title.trim() || !dueDate)) {
       toast.error('All required fields must be filled.');
       return;
     }
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    if (new Date(dueDate) < today) {
-      toast.error('Please select a valid deadline.');
-      return;
+    if (!delegateOnly) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      if (new Date(dueDate) < today) {
+        toast.error('Please select a valid deadline.');
+        return;
+      }
     }
     const originalAssignee = task?.assignedTo ? (task.assignedTo as User)._id : '';
     if (isEdit && task!.status === 'Completed' && assignedTo !== originalAssignee) {
@@ -726,22 +734,30 @@ function TaskFormModal({
     }
     setLoading(true);
     try {
-      const payload: any = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        assignedTo: assignedTo || undefined,
-        dueDate,
-        priority,
-      };
-      if (isEdit) {
-        payload.status = status;
-        await tasksApi.update(task._id, payload);
-        toast.success('Task updated');
+      if (isEdit && delegateOnly) {
+        await tasksApi.update(task._id, {
+          status,
+          assignedTo: assignedTo || undefined,
+        });
+        toast.success('Task reassigned');
       } else {
-        payload.project = projectId;
-        payload.status = 'Todo';
-        await tasksApi.create(payload);
-        toast.success('Task created');
+        const payload: any = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          assignedTo: assignedTo || undefined,
+          dueDate,
+          priority,
+        };
+        if (isEdit) {
+          payload.status = status;
+          await tasksApi.update(task._id, payload);
+          toast.success('Task updated');
+        } else {
+          payload.project = projectId;
+          payload.status = 'Todo';
+          await tasksApi.create(payload);
+          toast.success('Task created');
+        }
       }
       onSuccess();
     } catch (e: any) {
@@ -755,29 +771,38 @@ function TaskFormModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-          {isEdit ? 'Edit Task' : 'Add Task'}
+          {delegateOnly ? 'Reassign Task' : isEdit ? 'Edit Task' : 'Add Task'}
         </h2>
+        {delegateOnly && (
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+            Delegate this task to another project member or update its status.
+          </p>
+        )}
         <form onSubmit={handle} className="space-y-4">
-          <div>
-            <label className="label">Title *</label>
-            <input
-              className="input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Task title"
-              maxLength={150}
-            />
-          </div>
-          <div>
-            <label className="label">Description</label>
-            <textarea
-              className="input resize-none"
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional details…"
-            />
-          </div>
+          {!delegateOnly && (
+            <>
+              <div>
+                <label className="label">Title *</label>
+                <input
+                  className="input"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Task title"
+                  maxLength={150}
+                />
+              </div>
+              <div>
+                <label className="label">Description</label>
+                <textarea
+                  className="input resize-none"
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Optional details…"
+                />
+              </div>
+            </>
+          )}
           <div>
             <label className="label">Assign To</label>
             <select
@@ -793,30 +818,32 @@ function TaskFormModal({
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Due Date *</label>
-              <input
-                type="date"
-                className="input"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                min={new Date().toISOString().slice(0, 10)}
-              />
+          {!delegateOnly && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Due Date *</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  min={new Date().toISOString().slice(0, 10)}
+                />
+              </div>
+              <div>
+                <label className="label">Priority</label>
+                <select
+                  className="input"
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                >
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="label">Priority</label>
-              <select
-                className="input"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-              >
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-              </select>
-            </div>
-          </div>
+          )}
           {isEdit && (
             <div>
               <label className="label">Status</label>
@@ -843,7 +870,7 @@ function TaskFormModal({
               {loading && <Spinner size="sm" />}
               {loading
                 ? isEdit ? 'Saving…' : 'Creating…'
-                : isEdit ? 'Save Changes' : 'Create Task'}
+                : delegateOnly ? 'Save' : isEdit ? 'Save Changes' : 'Create Task'}
             </button>
           </div>
         </form>

@@ -58,10 +58,7 @@ export class TasksService {
     if (existing) throw new ConflictException('This task already exists in the project');
 
     if (dto.assignedTo) {
-      const isMember = project.members.some(
-        (m: any) => m._id?.toString() === dto.assignedTo || m.toString() === dto.assignedTo,
-      );
-      if (!isMember) throw new BadRequestException('User is not a member of this project');
+      await this.ensureAssigneeProjectAccess(dto.project, dto.assignedTo, user, project);
     }
 
     const task = new this.taskModel({ ...dto, createdBy: user._id });
@@ -105,12 +102,23 @@ export class TasksService {
     if (user.role === UserRole.MEMBER) {
       query.assignedTo = user._id;
     } else if (user.role === UserRole.PROJECT_MANAGER) {
-      const projects = await this.projectsService.findAll(user);
-      const projectIds = projects.map((p: any) => p._id);
-      query.project = { $in: projectIds };
+      const ownedProjects = await this.projectsService.findAll(user);
+      const pmScope = {
+        $or: [
+          { project: { $in: ownedProjects.map((p: any) => p._id) } },
+          { assignedTo: user._id },
+        ],
+      };
+      if (filters?.project) {
+        query.$and = [pmScope, { project: filters.project }];
+      } else {
+        Object.assign(query, pmScope);
+      }
     }
 
-    if (filters?.project) query.project = filters.project;
+    if (filters?.project && user.role !== UserRole.PROJECT_MANAGER) {
+      query.project = filters.project;
+    }
     if (filters?.status) query.status = filters.status;
     if (filters?.priority) query.priority = filters.priority;
     if (filters?.assignedTo) query.assignedTo = filters.assignedTo;
@@ -121,7 +129,14 @@ export class TasksService {
 
     return this.taskModel
       .find(query)
-      .populate('project', 'name')
+      .populate({
+        path: 'project',
+        select: 'name createdBy members',
+        populate: [
+          { path: 'createdBy', select: 'name email' },
+          { path: 'members', select: 'name email role' },
+        ],
+      })
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 })
@@ -131,7 +146,14 @@ export class TasksService {
   async findById(id: string): Promise<TaskDocument> {
     const task = await this.taskModel
       .findById(id)
-      .populate('project', 'name members')
+      .populate({
+        path: 'project',
+        select: 'name createdBy members',
+        populate: [
+          { path: 'createdBy', select: 'name email' },
+          { path: 'members', select: 'name email role' },
+        ],
+      })
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email')
       .populate('comments.author', 'name email avatar');
@@ -152,11 +174,7 @@ export class TasksService {
         throw new ForbiddenException('Members can only update task status');
       }
     } else if (user.role === UserRole.PROJECT_MANAGER) {
-      // PRD §02: PM can edit/delete tasks only in their own projects.
-      const projectOwnerId = (task.project as any)?.createdBy?.toString();
-      if (projectOwnerId !== userId) {
-        throw new ForbiddenException('You can only edit tasks in your own projects');
-      }
+      this.assertPmCanEditTask(task, userId, dto);
     }
 
     if (dto.assignedTo && task.status === TaskStatus.COMPLETED) {
@@ -164,11 +182,8 @@ export class TasksService {
     }
 
     if (dto.assignedTo) {
-      const projectDoc = task.project as any;
-      const isMember = projectDoc.members?.some(
-        (m: any) => m._id?.toString() === dto.assignedTo || m.toString() === dto.assignedTo,
-      );
-      if (!isMember) throw new BadRequestException('User is not a member of this project');
+      const projectId = ((task.project as any)?._id ?? task.project).toString();
+      await this.ensureAssigneeProjectAccess(projectId, dto.assignedTo, user, task.project as any);
     }
 
     if (dto.dueDate) {
@@ -383,6 +398,58 @@ export class TasksService {
     }
     task.comments = (task.comments as any[]).filter((c) => c._id.toString() !== commentId) as any;
     return task.save();
+  }
+
+  /**
+   * Task assignment grants responsibility, not ownership.
+   * When an admin assigns to a non-member, add them to the project only.
+   */
+  private async ensureAssigneeProjectAccess(
+    projectId: string,
+    assigneeId: string,
+    actor: UserDocument,
+    project?: any,
+  ) {
+    const proj =
+      project?.members != null
+        ? project
+        : await this.projectsService.findById(projectId, actor);
+
+    const isMember = proj.members?.some(
+      (m: any) => m._id?.toString() === assigneeId || m.toString() === assigneeId,
+    );
+    if (isMember) return;
+
+    if (actor.role === UserRole.ADMIN) {
+      await this.projectsService.ensureProjectMember(projectId, assigneeId, actor);
+      return;
+    }
+
+    throw new BadRequestException('User is not a member of this project');
+  }
+
+  /** PM owners get full edit; assignee-only PMs may update status or reassign to members. */
+  private assertPmCanEditTask(task: TaskDocument, userId: string, dto: UpdateTaskDto) {
+    const projectOwnerId = (task.project as any)?.createdBy?._id?.toString()
+      ?? (task.project as any)?.createdBy?.toString();
+    const assignedId = task.assignedTo?.toString();
+    const isProjectOwner = projectOwnerId === userId;
+    const isAssignee = assignedId === userId;
+
+    if (isProjectOwner) return;
+
+    if (isAssignee) {
+      const allowed = new Set(['status', 'assignedTo']);
+      const fields = Object.keys(dto).filter((k) => (dto as any)[k] !== undefined);
+      if (fields.some((k) => !allowed.has(k))) {
+        throw new ForbiddenException(
+          'You can only update status or reassign tasks assigned to you. Project ownership is unchanged.',
+        );
+      }
+      return;
+    }
+
+    throw new ForbiddenException('You can only manage tasks in your own projects or tasks assigned to you');
   }
 
   // Shared helper: PRD §10 requires project membership for commenting and attaching.
