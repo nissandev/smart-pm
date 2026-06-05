@@ -224,6 +224,11 @@ export default function ProjectDetailPage() {
           </span>
           <span className="text-slate-400">{tasks.length} tasks</span>
           <span className="text-slate-400">{members.length} members</span>
+          {typeof project.createdBy === 'object' && project.createdBy && (
+            <span className="text-slate-400">
+              Owner: {(project.createdBy as User).name}
+            </span>
+          )}
         </div>
 
         {tasks.length > 0 && (
@@ -526,6 +531,7 @@ export default function ProjectDetailPage() {
       {showAddMember && (
         <AddMemberModal
           projectId={id!}
+          isAdmin={me?.role === 'admin'}
           existingMemberIds={members.map((m) => m._id)}
           onClose={() => setShowAddMember(false)}
           onSuccess={() => {
@@ -848,14 +854,16 @@ function TaskFormModal({
 
 // ── AddMemberModal ────────────────────────────────────────────────
 function AddMemberModal({
-  projectId, existingMemberIds, onClose, onSuccess,
+  projectId, isAdmin, existingMemberIds, onClose, onSuccess,
 }: {
   projectId: string;
+  isAdmin: boolean;
   existingMemberIds: string[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [selectedId, setSelectedId] = useState('');
+  const [makeOwner, setMakeOwner] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const { data: allUsers = [] } = useQuery({
@@ -864,13 +872,17 @@ function AddMemberModal({
   });
 
   const available = allUsers.filter((u) => !existingMemberIds.includes(u._id));
+  const selectedUser = available.find((u) => u._id === selectedId);
+  const canMakeOwner = isAdmin && selectedUser?.role === 'project_manager';
 
   const handle = async () => {
     if (!selectedId) { toast.error('Select a user'); return; }
     setLoading(true);
     try {
-      await projectsApi.addMember(projectId, selectedId);
-      toast.success('Member added');
+      await projectsApi.addMember(projectId, selectedId, {
+        makeOwner: canMakeOwner && makeOwner,
+      });
+      toast.success(makeOwner && canMakeOwner ? 'Member added and made project owner' : 'Member added');
       onSuccess();
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to add member');
@@ -889,7 +901,10 @@ function AddMemberModal({
           <select
             className="input w-full mb-4"
             value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
+            onChange={(e) => {
+              setSelectedId(e.target.value);
+              setMakeOwner(false);
+            }}
           >
             <option value="">Select a user…</option>
             {available.map((u) => (
@@ -898,6 +913,22 @@ function AddMemberModal({
               </option>
             ))}
           </select>
+        )}
+        {canMakeOwner && (
+          <label className="flex items-start gap-2 mb-4 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 rounded border-slate-300"
+              checked={makeOwner}
+              onChange={(e) => setMakeOwner(e.target.checked)}
+            />
+            <span className="text-sm text-slate-600 dark:text-slate-300">
+              Make this PM the project owner
+              <span className="block text-xs text-slate-400 mt-0.5">
+                They can manage tasks. The current owner stays a member.
+              </span>
+            </span>
+          </label>
         )}
         <div className="flex gap-3 justify-end">
           <button className="btn-secondary" onClick={onClose} disabled={loading}>

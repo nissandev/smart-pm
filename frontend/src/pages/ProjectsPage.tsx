@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, differenceInDays, addDays, startOfDay } from 'date-fns';
-import { projectsApi, usersApi } from '../services';
+import { projectsApi, usersApi, type CreateProjectInput } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, ProjectStatusBadge, ConfirmModal,
@@ -250,10 +250,11 @@ export default function ProjectsPage() {
       {(showForm || editing) && (
         <ProjectFormModal
           project={editing}
+          isAdmin={user?.role === 'admin'}
           onClose={() => { setShowForm(false); setEditing(null); }}
           onSubmit={(data) => {
-            if (editing) updateMutation.mutate({ id: editing._id, data });
-            else createMutation.mutate(data as any);
+            if (editing) updateMutation.mutate({ id: editing._id, data: data as Partial<Project> });
+            else createMutation.mutate(data as CreateProjectInput);
           }}
           loading={createMutation.isPending || updateMutation.isPending}
         />
@@ -273,21 +274,40 @@ export default function ProjectsPage() {
   );
 }
 
-function ProjectFormModal({ project, onClose, onSubmit, loading }: {
+function ProjectFormModal({ project, isAdmin, onClose, onSubmit, loading }: {
   project: Project | null;
+  isAdmin: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => void;
+  onSubmit: (data: CreateProjectInput | Partial<Project>) => void;
   loading: boolean;
 }) {
   const [name, setName] = useState(project?.name || '');
   const [description, setDescription] = useState(project?.description || '');
   const [deadline, setDeadline] = useState(project?.deadline?.slice(0, 10) || '');
   const [status, setStatus] = useState(project?.status || 'Active');
+  const [ownerId, setOwnerId] = useState('');
+
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.getAll().then((r) => r.data),
+    enabled: isAdmin && !project,
+  });
+  const projectManagers = allUsers.filter((u) => u.role === 'project_manager');
 
   const handle = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !deadline) { toast.error('Name and deadline are required'); return; }
-    onSubmit({ name, description, deadline, status });
+    if (project) {
+      onSubmit({ name, description, deadline, status });
+    } else {
+      onSubmit({
+        name,
+        description,
+        deadline,
+        status,
+        ...(ownerId ? { ownerId } : {}),
+      });
+    }
   };
 
   return (
@@ -319,6 +339,26 @@ function ProjectFormModal({ project, onClose, onSubmit, loading }: {
               </select>
             </div>
           </div>
+          {isAdmin && !project && (
+            <div>
+              <label className="label">Project owner (PM)</label>
+              <select
+                className="input"
+                value={ownerId}
+                onChange={(e) => setOwnerId(e.target.value)}
+              >
+                <option value="">Me (admin keeps ownership)</option>
+                {projectManagers.map((u) => (
+                  <option key={u._id} value={u._id}>
+                    {u.name} — Project Manager
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                Optional. The selected PM can manage tasks in this project. You stay a member.
+              </p>
+            </div>
+          )}
           <div className="flex gap-3 justify-end pt-2">
             <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Saving…' : project ? 'Save changes' : 'Create'}</button>

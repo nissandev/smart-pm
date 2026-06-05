@@ -23,15 +23,26 @@ export const usersApi = {
 };
 
 // ── Projects ──────────────────────────────────────────────────
+export interface CreateProjectInput {
+  name: string;
+  description?: string;
+  deadline: string;
+  status?: Project['status'];
+  /** Admin only — assign a PM as project owner at creation time. */
+  ownerId?: string;
+}
+
 export const projectsApi = {
   getAll: () => api.get<Project[]>('/projects'),
   getById: (id: string) => api.get<Project>(`/projects/${id}`),
   getStats: () => api.get('/projects/stats'),
-  create: (data: Partial<Project>) => api.post<Project>('/projects', data),
+  create: (data: CreateProjectInput) => api.post<Project>('/projects', data),
   update: (id: string, data: Partial<Project>) => api.patch<Project>(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
-  addMember: (projectId: string, memberId: string) =>
-    api.post<Project>(`/projects/${projectId}/members/${memberId}`),
+  addMember: (projectId: string, memberId: string, options?: { makeOwner?: boolean }) =>
+    api.post<Project>(`/projects/${projectId}/members/${memberId}`, {
+      makeOwner: options?.makeOwner ?? false,
+    }),
   removeMember: (projectId: string, memberId: string) =>
     api.delete<Project>(`/projects/${projectId}/members/${memberId}`),
 };

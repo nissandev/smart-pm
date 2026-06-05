@@ -16,6 +16,7 @@ import { ActionType } from '../activity/activity.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.schema';
 import { Task, TaskDocument } from '../tasks/task.schema';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class ProjectsService {
@@ -24,6 +25,7 @@ export class ProjectsService {
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
     private activityService: ActivityService,
     private notifications: NotificationsService,
+    private usersService: UsersService,
   ) {}
 
   async create(dto: CreateProjectDto, user: UserDocument): Promise<ProjectDocument> {
@@ -37,21 +39,44 @@ export class ProjectsService {
     }
     // PRD §03: project name must be unique per team (case-insensitive)
     await this.assertUniqueName(dto.name);
+
+    const { createdBy, members } = await this.resolveInitialOwner(dto.ownerId, user);
+    const { ownerId: _ownerId, ...projectFields } = dto;
+
     const project = new this.projectModel({
-      ...dto,
-      createdBy: user._id,
-      members: [user._id],
+      ...projectFields,
+      createdBy,
+      members,
     });
     const saved = await project.save();
+    await saved.populate([
+      { path: 'createdBy', select: 'name email' },
+      { path: 'members', select: 'name email role' },
+    ]);
 
+    const ownerName = (saved.createdBy as any)?.name ?? 'owner';
+    const delegated = createdBy.toString() !== (user as any)._id.toString();
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.PROJECT_CREATED,
       entityType: 'project',
       entityId: saved._id,
-      description: `Project "${saved.name}" was created`,
+      description: delegated
+        ? `Project "${saved.name}" was created (owner: ${ownerName})`
+        : `Project "${saved.name}" was created`,
       project: saved._id,
     });
+
+    if (delegated) {
+      await this.notifications.create({
+        recipient: createdBy,
+        actor: (user as any)._id,
+        type: NotificationType.MEMBER_ADDED,
+        title: 'You are now the owner of a project',
+        message: `"${saved.name}"`,
+        project: saved._id,
+      });
+    }
 
     return saved;
   }
@@ -138,7 +163,12 @@ export class ProjectsService {
     await project.deleteOne();
   }
 
-  async addMember(projectId: string, memberId: string, user: UserDocument): Promise<ProjectDocument> {
+  async addMember(
+    projectId: string,
+    memberId: string,
+    user: UserDocument,
+    makeOwner = false,
+  ): Promise<ProjectDocument> {
     const project = await this.projectModel.findById(projectId);
     if (!project) throw new NotFoundException('Project not found');
     this.checkOwnerOrAdmin(project, user);
@@ -147,15 +177,45 @@ export class ProjectsService {
     if (project.members.some((m) => m.equals(memberObjectId))) {
       throw new BadRequestException('User is already a member');
     }
+
+    const memberUser = await this.usersService.findById(memberId);
+    if (!memberUser.isActive) {
+      throw new BadRequestException('Cannot add an inactive user');
+    }
+
+    if (makeOwner) {
+      if (user.role !== UserRole.ADMIN) {
+        throw new ForbiddenException('Only admins can transfer project ownership');
+      }
+      if (memberUser.role !== UserRole.PROJECT_MANAGER) {
+        throw new BadRequestException('Only Project Managers can be made project owner');
+      }
+    }
+
     project.members.push(memberObjectId);
+
+    const previousOwnerId = project.createdBy.toString();
+    if (makeOwner) {
+      project.createdBy = memberObjectId;
+      // Keep the previous owner in members so they retain access.
+      const prevOwnerObjectId = new Types.ObjectId(previousOwnerId);
+      if (!project.members.some((m) => m.equals(prevOwnerObjectId))) {
+        project.members.push(prevOwnerObjectId);
+      }
+    }
+
     const saved = await project.save();
+    await saved.populate([
+      { path: 'createdBy', select: 'name email' },
+      { path: 'members', select: 'name email role' },
+    ]);
 
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.MEMBER_ADDED,
       entityType: 'member',
       entityId: memberObjectId,
-      description: `A new member was added to "${project.name}"`,
+      description: `${memberUser.name} was added to "${project.name}"`,
       project: project._id,
     });
 
@@ -167,6 +227,26 @@ export class ProjectsService {
       message: `"${project.name}"`,
       project: project._id,
     });
+
+    if (makeOwner) {
+      await this.activityService.log({
+        actor: (user as any)._id,
+        actionType: ActionType.PROJECT_OWNERSHIP_TRANSFERRED,
+        entityType: 'project',
+        entityId: project._id,
+        description: `Ownership of "${project.name}" was transferred to ${memberUser.name}`,
+        project: project._id,
+      });
+
+      await this.notifications.create({
+        recipient: memberObjectId,
+        actor: (user as any)._id,
+        type: NotificationType.MEMBER_ADDED,
+        title: 'You are now the owner of a project',
+        message: `"${project.name}"`,
+        project: project._id,
+      });
+    }
 
     return saved;
   }
@@ -214,6 +294,37 @@ export class ProjectsService {
     if (project.createdBy.toString() !== (user as any)._id.toString()) {
       throw new ForbiddenException('Only the project owner or admin can perform this action');
     }
+  }
+
+  /** Admin may delegate ownership to a PM at creation time. */
+  private async resolveInitialOwner(
+    ownerId: string | undefined,
+    actor: UserDocument,
+  ): Promise<{ createdBy: Types.ObjectId; members: Types.ObjectId[] }> {
+    const actorId = new Types.ObjectId((actor as any)._id.toString());
+
+    if (!ownerId) {
+      return { createdBy: actorId, members: [actorId] };
+    }
+
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can assign a project owner');
+    }
+
+    const owner = await this.usersService.findById(ownerId);
+    if (owner.role !== UserRole.PROJECT_MANAGER) {
+      throw new BadRequestException('Project owner must be a Project Manager');
+    }
+    if (!owner.isActive) {
+      throw new BadRequestException('Project owner account is not active');
+    }
+
+    const ownerObjectId = new Types.ObjectId(ownerId);
+    const members = [actorId, ownerObjectId].filter(
+      (id, idx, arr) => arr.findIndex((x) => x.equals(id)) === idx,
+    );
+
+    return { createdBy: ownerObjectId, members };
   }
 
   // PRD §03: project name is unique per team. We treat the entire workspace as one team
