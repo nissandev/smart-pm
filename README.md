@@ -286,7 +286,8 @@ smart-pm/
 │   │   └── types/                 # shared TS types
 │   └── package.json
 │
-├── docker-compose.yml             # backend + frontend (Mongo external)
+├── docker-compose.yml             # local dev (hot reload, bind mounts)
+├── docker-compose.prod.yml        # production / Dokploy (multi-stage builds, nginx)
 ├── .env.example                   # template — copy to .env
 └── package.json                   # workspace scripts (dev / down / logs)
 ```
@@ -421,22 +422,77 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ---
 
-## Production Notes
+## Production Deployment
 
-When deploying:
+The repo ships **two** compose files:
 
-1. Build production images:
-   ```bash
-   # in backend/Dockerfile and frontend/Dockerfile, target: production
-   docker compose -f docker-compose.yml --profile prod up --build
+| File                       | Purpose                                                                |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `docker-compose.yml`       | **Local development** — bind-mounts source, hot reload, Vite dev srv   |
+| `docker-compose.prod.yml`  | **Production / Dokploy** — multi-stage builds, nginx-served SPA        |
+
+The dev compose file is *not* suitable for any host that doesn't have your
+source tree at the bind-mount paths. Always use `docker-compose.prod.yml` for
+deployments.
+
+### Quick prod build on any Docker host
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+# Frontend (nginx) on port 80, proxies /api and /uploads to the backend.
+```
+
+Required env vars (set in the host shell or a `.env` next to the compose file):
+
+```bash
+MONGO_URI=mongodb+srv://...        # Atlas or external Mongo
+JWT_SECRET=<long-random-string>    # use `openssl rand -hex 48`
+JWT_EXPIRES_IN=7d
+FRONTEND_URL=https://your-domain.com
+# Optional — defaults to /api so the bundle uses the nginx proxy:
+# VITE_API_URL=/api
+```
+
+### Deploy to Dokploy
+
+> Common cause of the error **"The service smart-pm not found in the compose"**:
+> Dokploy's *Service Name* field must match an actual service in your
+> compose file (we use `frontend` and `backend`, not `smart-pm`).
+
+1. **Create a new "Compose" application** in Dokploy and point it at the GitHub repo.
+2. In the **Compose** tab:
+   - **Compose File**: `docker-compose.prod.yml`
+   - **Compose Path**: `./` (the repo root, where the file lives)
+3. In the **Domains** tab, add your domain and target the **`frontend`** service on **port 80**.
+   *(That's the value to put in any "Service Name" field — it's the only public-facing service.)*
+4. In the **Environment** tab, set:
+   ```env
+   MONGO_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/smartpm?retryWrites=true&w=majority
+   JWT_SECRET=<long-random-string>
+   JWT_EXPIRES_IN=7d
+   FRONTEND_URL=https://your-domain.com
+   VITE_API_URL=/api
+   VITE_APP_NAME=SmartPM
    ```
-2. Set a **strong `JWT_SECRET`**.
-3. Restrict Atlas IP allowlist to your server's IP.
-4. Serve the frontend through a CDN or reverse proxy (Nginx/Caddy) and put HTTPS in front.
-5. Mount a persistent volume for `backend/uploads` (or move to S3-compatible storage).
-6. Configure CORS — backend currently uses `FRONTEND_URL` for the allowed origin.
-7. Disable Mongo Express (none is shipped, just don't expose it).
-8. Run `npm audit` periodically and bump pinned versions.
+5. Click **Deploy**. Dokploy will build both images and bring the stack up.
+   Traefik (built into Dokploy) will route your domain → `frontend:80`, and nginx
+   inside that container will proxy `/api/*` and `/uploads/*` → `backend:3001`.
+6. **Seed the demo users (one-time):**
+   ```bash
+   # on the Dokploy host
+   docker exec smart-pm-backend npm run seed
+   ```
+
+### Production checklist
+
+- [x] Use multi-stage builds (`target: production`) — already configured
+- [ ] Strong `JWT_SECRET` (never reuse the dev value)
+- [ ] Restrict Atlas IP allowlist to your server's IP
+- [ ] Configure HTTPS via Dokploy/Traefik or a reverse proxy
+- [x] `backend_uploads` named volume — already in `docker-compose.prod.yml`
+- [ ] Set `FRONTEND_URL` to the public HTTPS origin (used for CORS)
+- [ ] Run `npm audit` periodically, bump pinned versions
+- [ ] Consider moving `/uploads` to S3 or an object store for horizontal scaling
 
 ---
 

@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────
+# Production compose — used by Dokploy / any plain Docker host.
+#
+#   - No bind mounts (source is COPYed into the image at build time).
+#   - Uses the `production` target in each Dockerfile.
+#   - Backend runs `node dist/main`.
+#   - Frontend serves the built static SPA via nginx, which also
+#     reverse-proxies `/api/*` and `/uploads/*` to the backend.
+#   - MongoDB is NOT included — point MONGO_URI at MongoDB Atlas
+#     (or any externally-managed Mongo instance).
+#   - Dokploy / Traefik handles TLS and the public hostname; we just
+#     expose the frontend on port 80 inside the docker network.
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: smart-pm-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      MONGO_URI: ${MONGO_URI}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      FRONTEND_URL: ${FRONTEND_URL}
+    expose:
+      - "3001"
+    volumes:
+      # Persist uploaded attachments across container rebuilds.
+      - backend_uploads:/app/uploads
+    networks:
+      - smart-pm
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        # Baked into the React bundle at build time. Use a relative path
+        # so the SPA hits the nginx proxy, which forwards to backend:3001.
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_APP_NAME: ${VITE_APP_NAME:-SmartPM}
+    container_name: smart-pm-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - smart-pm
+
+networks:
+  smart-pm:
+    driver: bridge
+
+volumes:
+  backend_uploads:
+    driver: local
