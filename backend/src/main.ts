@@ -20,10 +20,15 @@ async function bootstrap() {
   // CORS — supports multiple origins via comma-separated FRONTEND_URL.
   // e.g. FRONTEND_URL=https://web-smart-pm.com,https://smartpm.nexarift.com,http://localhost:3000
   // A bare "*" makes the API public (use only for demos).
+  // Comparison is case-insensitive on the host portion because browsers
+  // always send the Origin header lowercased, even if VITE_API_URL/site
+  // URL was configured with mixed case.
+  const normalizeOrigin = (raw: string) => raw.trim().toLowerCase().replace(/\/$/, '');
+
   const rawOrigins = process.env.FRONTEND_URL || 'http://localhost:3000';
   const allowedOrigins = rawOrigins
     .split(',')
-    .map((o) => o.trim().replace(/\/$/, ''))
+    .map(normalizeOrigin)
     .filter(Boolean);
 
   app.enableCors({
@@ -31,8 +36,7 @@ async function bootstrap() {
       // Same-origin requests (curl, Postman, server-to-server) have no `origin` header.
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes('*')) return cb(null, true);
-      const normalized = origin.replace(/\/$/, '');
-      if (allowedOrigins.includes(normalized)) return cb(null, true);
+      if (allowedOrigins.includes(normalizeOrigin(origin))) return cb(null, true);
       return cb(new Error(`Origin ${origin} not allowed by CORS`), false);
     },
     credentials: true,
