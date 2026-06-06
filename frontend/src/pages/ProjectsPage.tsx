@@ -7,12 +7,12 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, differenceInDays, addDays, startOfDay } from 'date-fns';
-import { projectsApi, usersApi, type CreateProjectInput } from '../services';
+import { projectsApi, usersApi, groupsApi, type CreateProjectInput } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, ProjectStatusBadge, ConfirmModal,
 } from '../components/shared';
-import type { Project, User } from '../types';
+import type { Project, User, TeamGroup } from '../types';
 
 const PAGE_SIZE = 12;
 
@@ -43,10 +43,17 @@ export default function ProjectsPage() {
 
   // PRD §09: "Created by (Admin view)" project filter — admin-only.
   const isAdmin = user?.role === 'admin';
+  const canPickGroup = user?.role === 'admin' || user?.role === 'project_manager';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => usersApi.getAll().then((r) => r.data),
     enabled: isAdmin,
+  });
+
+  const { data: groups = [] } = useQuery({
+    queryKey: ['groups'],
+    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    enabled: canPickGroup,
   });
 
   const createMutation = useMutation({
@@ -251,6 +258,8 @@ export default function ProjectsPage() {
         <ProjectFormModal
           project={editing}
           isAdmin={user?.role === 'admin'}
+          groups={groups}
+          canPickGroup={canPickGroup}
           onClose={() => { setShowForm(false); setEditing(null); }}
           onSubmit={(data) => {
             if (editing) updateMutation.mutate({ id: editing._id, data: data as Partial<Project> });
@@ -274,9 +283,11 @@ export default function ProjectsPage() {
   );
 }
 
-function ProjectFormModal({ project, isAdmin, onClose, onSubmit, loading }: {
+function ProjectFormModal({ project, isAdmin, groups, canPickGroup, onClose, onSubmit, loading }: {
   project: Project | null;
   isAdmin: boolean;
+  groups: TeamGroup[];
+  canPickGroup: boolean;
   onClose: () => void;
   onSubmit: (data: CreateProjectInput | Partial<Project>) => void;
   loading: boolean;
@@ -285,7 +296,8 @@ function ProjectFormModal({ project, isAdmin, onClose, onSubmit, loading }: {
   const [description, setDescription] = useState(project?.description || '');
   const [deadline, setDeadline] = useState(project?.deadline?.slice(0, 10) || '');
   const [status, setStatus] = useState(project?.status || 'Active');
-  const [ownerId, setOwnerId] = useState('');
+  const [leadId, setLeadId] = useState('');
+  const [teamId, setTeamId] = useState('');
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
@@ -305,9 +317,18 @@ function ProjectFormModal({ project, isAdmin, onClose, onSubmit, loading }: {
         description,
         deadline,
         status,
-        ...(ownerId ? { ownerId } : {}),
+        ...(leadId ? { leadId } : {}),
+        ...(teamId ? { teamId } : {}),
       });
     }
+  };
+
+  const handleTeamChange = (id: string) => {
+    setTeamId(id);
+    if (!id) return;
+    const group = groups.find((g) => g._id === id);
+    const leadId = group && typeof group.leadId === 'object' ? group.leadId._id : group?.leadId;
+    if (leadId && isAdmin) setLeadId(String(leadId));
   };
 
   return (
@@ -339,15 +360,31 @@ function ProjectFormModal({ project, isAdmin, onClose, onSubmit, loading }: {
               </select>
             </div>
           </div>
+          {canPickGroup && !project && groups.length > 0 && (
+            <div>
+              <label className="label">Assign team group</label>
+              <select className="input" value={teamId} onChange={(e) => handleTeamChange(e.target.value)}>
+                <option value="">No group — add members manually later</option>
+                {groups.map((g) => (
+                  <option key={g._id} value={g._id}>
+                    {g.name} ({g.memberIds.length + 1} people)
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                Copies all group members into this project. Group PM becomes project lead unless you override below.
+              </p>
+            </div>
+          )}
           {isAdmin && !project && (
             <div>
-              <label className="label">Project owner (PM)</label>
+              <label className="label">Project lead (PM)</label>
               <select
                 className="input"
-                value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
+                value={leadId}
+                onChange={(e) => setLeadId(e.target.value)}
               >
-                <option value="">Me (admin keeps ownership)</option>
+                <option value="">No PM lead yet</option>
                 {projectManagers.map((u) => (
                   <option key={u._id} value={u._id}>
                     {u.name} — Project Manager
@@ -355,7 +392,7 @@ function ProjectFormModal({ project, isAdmin, onClose, onSubmit, loading }: {
                 ))}
               </select>
               <p className="text-xs text-slate-400 mt-1">
-                Optional. The selected PM can manage tasks in this project. You stay a member.
+                Optional. You remain the project owner. The PM gets full manage access.
               </p>
             </div>
           )}

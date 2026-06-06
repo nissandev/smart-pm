@@ -12,10 +12,12 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UserRole, UserDocument } from '../users/user.schema';
 import { ProjectsService } from '../projects/projects.service';
+import { getProjectLeadId } from '../projects/project-lead.util';
 import { ActivityService } from '../activity/activity.service';
 import { ActionType } from '../activity/activity.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.schema';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class TasksService {
@@ -24,6 +26,7 @@ export class TasksService {
     private projectsService: ProjectsService,
     private activityService: ActivityService,
     private notifications: NotificationsService,
+    private usersService: UsersService,
   ) {}
 
   async create(dto: CreateTaskDto, user: UserDocument): Promise<TaskDocument> {
@@ -44,9 +47,9 @@ export class TasksService {
     // Member already blocked at the @Roles guard layer; re-check here for defence-in-depth.
     if (user.role === UserRole.PROJECT_MANAGER) {
       const userId = (user as any)._id.toString();
-      const projectOwnerId = (project.createdBy as any)?._id?.toString() ?? project.createdBy?.toString();
-      if (projectOwnerId !== userId) {
-        throw new ForbiddenException('You can only create tasks in your own projects');
+      const projectLeadId = getProjectLeadId(project as any);
+      if (projectLeadId !== userId) {
+        throw new ForbiddenException('You can only create tasks in projects you lead');
       }
     }
     if (user.role === UserRole.MEMBER) {
@@ -131,9 +134,10 @@ export class TasksService {
       .find(query)
       .populate({
         path: 'project',
-        select: 'name createdBy members',
+        select: 'name createdBy leadId members',
         populate: [
-          { path: 'createdBy', select: 'name email' },
+          { path: 'createdBy', select: 'name email role' },
+          { path: 'leadId', select: 'name email role' },
           { path: 'members', select: 'name email role' },
         ],
       })
@@ -148,9 +152,10 @@ export class TasksService {
       .findById(id)
       .populate({
         path: 'project',
-        select: 'name createdBy members',
+        select: 'name createdBy leadId members',
         populate: [
-          { path: 'createdBy', select: 'name email' },
+          { path: 'createdBy', select: 'name email role' },
+          { path: 'leadId', select: 'name email role' },
           { path: 'members', select: 'name email role' },
         ],
       })
@@ -277,9 +282,9 @@ export class TasksService {
     }
     // PRD §02: PM can delete tasks only in their own projects.
     if (user.role === UserRole.PROJECT_MANAGER) {
-      const projectOwnerId = (task.project as any)?.createdBy?.toString();
-      if (projectOwnerId !== userId) {
-        throw new ForbiddenException('You can only delete tasks in your own projects');
+      const projectLeadId = getProjectLeadId((task.project as any) ?? {});
+      if (projectLeadId !== userId) {
+        throw new ForbiddenException('You can only delete tasks in projects you lead');
       }
     }
 
@@ -337,9 +342,9 @@ export class TasksService {
     const userId = (user as any)._id.toString();
     const isOwner = att.uploadedBy?.toString() === userId;
     const isAdmin = user.role === UserRole.ADMIN;
-    const projectCreatorId = (task.project as any)?.createdBy?.toString();
-    const isProjectOwner = user.role === UserRole.PROJECT_MANAGER && projectCreatorId === userId;
-    if (!isOwner && !isAdmin && !isProjectOwner) {
+    const projectLeadId = getProjectLeadId((task.project as any) ?? {});
+    const isProjectLead = user.role === UserRole.PROJECT_MANAGER && projectLeadId === userId;
+    if (!isOwner && !isAdmin && !isProjectLead) {
       throw new ForbiddenException('You can only remove your own attachments');
     }
     task.attachments.splice(index, 1);
@@ -410,6 +415,11 @@ export class TasksService {
     actor: UserDocument,
     project?: any,
   ) {
+    const assignee = await this.usersService.findById(assigneeId);
+    if (assignee.role === UserRole.ADMIN) {
+      throw new BadRequestException('Tasks cannot be assigned to admin users');
+    }
+
     const proj =
       project?.members != null
         ? project
@@ -430,13 +440,12 @@ export class TasksService {
 
   /** PM owners get full edit; assignee-only PMs may update status or reassign to members. */
   private assertPmCanEditTask(task: TaskDocument, userId: string, dto: UpdateTaskDto) {
-    const projectOwnerId = (task.project as any)?.createdBy?._id?.toString()
-      ?? (task.project as any)?.createdBy?.toString();
+    const projectLeadId = getProjectLeadId((task.project as any) ?? {});
     const assignedId = task.assignedTo?.toString();
-    const isProjectOwner = projectOwnerId === userId;
+    const isProjectLead = projectLeadId === userId;
     const isAssignee = assignedId === userId;
 
-    if (isProjectOwner) return;
+    if (isProjectLead) return;
 
     if (isAssignee) {
       const allowed = new Set(['status', 'assignedTo']);
@@ -460,8 +469,8 @@ export class TasksService {
     const isMember = project?.members?.some(
       (m: any) => m._id?.toString() === userId || m.toString() === userId,
     );
-    const isCreator = project?.createdBy?.toString() === userId;
-    if (!isMember && !isCreator) {
+    const isLead = getProjectLeadId(project ?? {}) === userId;
+    if (!isMember && !isLead) {
       throw new ForbiddenException('Only project members can perform this action');
     }
   }

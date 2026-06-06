@@ -5,7 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
-import { TeamModule } from './team/team.module';
+import { GroupsModule } from './groups/groups.module';
 import { ActivityModule } from './activity/activity.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -31,7 +31,7 @@ import { HealthController } from './health.controller';
     UsersModule,
     ProjectsModule,
     TasksModule,
-    TeamModule,
+    GroupsModule,
     ActivityModule,
     DashboardModule,
     NotificationsModule,

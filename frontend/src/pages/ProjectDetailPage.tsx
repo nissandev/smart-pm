@@ -7,14 +7,19 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, formatDistanceToNow } from 'date-fns';
-import { projectsApi, tasksApi, usersApi, activityApi } from '../services';
+import { projectsApi, tasksApi, usersApi, activityApi, groupsApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, ProjectStatusBadge, PriorityBadge,
-  ConfirmModal, Avatar, EmptyState, Spinner,
+  ConfirmModal, Avatar, EmptyState, Spinner, AssigneePicker,
 } from '../components/shared';
-import type { Project, Task, TaskPriority, TaskStatus, User, ProjectStatus, Activity } from '../types';
+import type { Project, Task, TaskPriority, TaskStatus, User, ProjectStatus, Activity, TeamGroup } from '../types';
 import { getTaskEditMode } from '../utils/taskPermissions';
+import { invalidateTaskQueries } from '../utils/invalidateTaskQueries';
+import { getTaskAssigneePool } from '../utils/taskAssignees';
+import {
+  canManageProject, canRemoveProjectMember, getProjectLeadId, getProjectOwnerId,
+} from '../utils/projectPermissions';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +55,12 @@ export default function ProjectDetailPage() {
 
   const isAdminOrPM = me?.role === 'admin' || me?.role === 'project_manager';
 
+  const { data: groups = [] } = useQuery({
+    queryKey: ['groups'],
+    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    enabled: isAdminOrPM,
+  });
+
   const { data: recentActivity = [] } = useQuery({
     queryKey: ['activity', 'project', id],
     queryFn: () => activityApi.getRecent(8, id).then((r) => r.data),
@@ -84,8 +95,7 @@ export default function ProjectDetailPage() {
   const deleteTaskMutation = useMutation({
     mutationFn: (taskId: string) => tasksApi.delete(taskId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks', { project: id }] });
-      qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
+      invalidateTaskQueries(qc, { projectId: id });
       setDeletingTask(null);
       toast.success('Task deleted');
     },
@@ -106,13 +116,7 @@ export default function ProjectDetailPage() {
   });
 
   // ── Permissions ────────────────────────────────────────────────
-  const canManage =
-    me?.role === 'admin' ||
-    (me?.role === 'project_manager' &&
-      project?.createdBy &&
-      (typeof project.createdBy === 'object'
-        ? (project.createdBy as User)._id
-        : project.createdBy) === me._id);
+  const canManage = project ? canManageProject(project, me) : me?.role === 'admin';
 
   const canChangeTaskStatus = (task: Task) => {
     if (me?.role === 'admin' || me?.role === 'project_manager') return true;
@@ -123,8 +127,7 @@ export default function ProjectDetailPage() {
     setStatusUpdating(taskId);
     try {
       await tasksApi.update(taskId, { status: newStatus });
-      qc.invalidateQueries({ queryKey: ['tasks', { project: id }] });
-      qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
+      invalidateTaskQueries(qc, { projectId: id });
       toast.success('Status updated');
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to update status');
@@ -150,6 +153,8 @@ export default function ProjectDetailPage() {
   );
 
   const members = project.members as User[];
+  const projectOwnerId = getProjectOwnerId(project);
+  const projectLeadId = getProjectLeadId(project);
   const tasksByStatus = {
     todo: tasks.filter((t) => t.status === 'Todo').length,
     inProgress: tasks.filter((t) => t.status === 'In Progress').length,
@@ -225,6 +230,16 @@ export default function ProjectDetailPage() {
           {typeof project.createdBy === 'object' && project.createdBy && (
             <span className="text-slate-400">
               Owner: {(project.createdBy as User).name}
+            </span>
+          )}
+          {project.leadId && typeof project.leadId === 'object' && (
+            <span className="text-slate-400">
+              Lead: {(project.leadId as User).name}
+            </span>
+          )}
+          {project.teamId && typeof project.teamId === 'object' && (
+            <span className="text-slate-400">
+              Team: {(project.teamId as TeamGroup).name}
             </span>
           )}
         </div>
@@ -458,11 +473,17 @@ export default function ProjectDetailPage() {
                       <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
                         {m.name}
                       </p>
-                      <p className="text-xs text-slate-400 capitalize">
-                        {m.role?.replace('_', ' ')}
+                      <p className="text-xs text-slate-400 capitalize flex items-center gap-1.5">
+                        <span>{m.role?.replace('_', ' ')}</span>
+                        {m._id === projectOwnerId && (
+                          <span className="text-purple-600 dark:text-purple-400 font-medium">· Owner</span>
+                        )}
+                        {m._id === projectLeadId && (
+                          <span className="text-brand-600 dark:text-brand-400 font-medium">· Lead</span>
+                        )}
                       </p>
                     </div>
-                    {canManage && m._id !== me?._id && (
+                    {canRemoveProjectMember(project, m, me) && (
                       <button
                         className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
                         onClick={() => setRemovingMember(m)}
@@ -536,6 +557,8 @@ export default function ProjectDetailPage() {
         <AddMemberModal
           projectId={id!}
           isAdmin={me?.role === 'admin'}
+          canAssignLead={canManage}
+          groups={groups}
           existingMemberIds={members.map((m) => m._id)}
           onClose={() => setShowAddMember(false)}
           onSuccess={() => {
@@ -550,10 +573,10 @@ export default function ProjectDetailPage() {
         <TaskFormModal
           projectId={id!}
           members={members}
+          groups={groups}
           onClose={() => setShowCreateTask(false)}
           onSuccess={() => {
-            qc.invalidateQueries({ queryKey: ['tasks', { project: id }] });
-            qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
+            invalidateTaskQueries(qc, { projectId: id });
             setShowCreateTask(false);
           }}
         />
@@ -563,12 +586,12 @@ export default function ProjectDetailPage() {
         <TaskFormModal
           projectId={id!}
           members={members}
+          groups={groups}
           task={editingTask}
           delegateOnly={getTaskEditMode(editingTask, me) === 'delegate'}
           onClose={() => setEditingTask(null)}
           onSuccess={() => {
-            qc.invalidateQueries({ queryKey: ['tasks', { project: id }] });
-            qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
+            invalidateTaskQueries(qc, { projectId: id });
             setEditingTask(null);
           }}
         />
@@ -694,10 +717,11 @@ function EditProjectModal({
 
 // ── TaskFormModal (create & edit) ─────────────────────────────────
 function TaskFormModal({
-  projectId, members, task, delegateOnly = false, onClose, onSuccess,
+  projectId, members, groups, task, delegateOnly = false, onClose, onSuccess,
 }: {
   projectId: string;
   members: User[];
+  groups: TeamGroup[];
   task?: Task;
   delegateOnly?: boolean;
   onClose: () => void;
@@ -706,6 +730,7 @@ function TaskFormModal({
   const isEdit = !!task;
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
+  const [teamGroupId, setTeamGroupId] = useState('');
   const [assignedTo, setAssignedTo] = useState(
     task?.assignedTo ? (task.assignedTo as User)._id : '',
   );
@@ -713,6 +738,18 @@ function TaskFormModal({
   const [priority, setPriority] = useState<TaskPriority>(task?.priority || 'Medium');
   const [status, setStatus] = useState<TaskStatus>(task?.status || 'Todo');
   const [loading, setLoading] = useState(false);
+
+  const selectedGroup = groups.find((g) => g._id === teamGroupId);
+  const assigneePool = getTaskAssigneePool(members, selectedGroup);
+
+  const handleTeamGroupChange = (id: string) => {
+    setTeamGroupId(id);
+    const group = groups.find((g) => g._id === id);
+    const pool = getTaskAssigneePool(members, group);
+    if (assignedTo && !pool.some((m) => m._id === assignedTo)) {
+      setAssignedTo('');
+    }
+  };
 
   const handle = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -803,20 +840,28 @@ function TaskFormModal({
               </div>
             </>
           )}
+          {groups.length > 0 && (
+            <div>
+              <label className="label">Filter by group</label>
+              <select
+                className="input"
+                value={teamGroupId}
+                onChange={(e) => handleTeamGroupChange(e.target.value)}
+              >
+                <option value="">All project members</option>
+                {groups.map((g) => (
+                  <option key={g._id} value={g._id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">Assign To</label>
-            <select
-              className="input"
+            <AssigneePicker
+              users={assigneePool}
               value={assignedTo}
-              onChange={(e) => setAssignedTo(e.target.value)}
-            >
-              <option value="">Unassigned</option>
-              {members.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+              onChange={setAssignedTo}
+            />
           </div>
           {!delegateOnly && (
             <div className="grid grid-cols-2 gap-4">
@@ -881,35 +926,74 @@ function TaskFormModal({
 
 // ── AddMemberModal ────────────────────────────────────────────────
 function AddMemberModal({
-  projectId, isAdmin, existingMemberIds, onClose, onSuccess,
+  projectId, isAdmin, canAssignLead, groups, existingMemberIds, onClose, onSuccess,
 }: {
   projectId: string;
   isAdmin: boolean;
+  canAssignLead: boolean;
+  groups: TeamGroup[];
   existingMemberIds: string[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const [mode, setMode] = useState<'individual' | 'group'>('individual');
   const [selectedId, setSelectedId] = useState('');
-  const [makeOwner, setMakeOwner] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [makeLead, setMakeLead] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => usersApi.getAll().then((r) => r.data),
+    enabled: isAdmin,
   });
 
   const available = allUsers.filter((u) => !existingMemberIds.includes(u._id));
   const selectedUser = available.find((u) => u._id === selectedId);
-  const canMakeOwner = isAdmin && selectedUser?.role === 'project_manager';
+  const canMakeLeadIndividual = canAssignLead && selectedUser?.role === 'project_manager';
+
+  const selectedGroup = groups.find((g) => g._id === selectedGroupId);
+  const groupNewCount = useMemo(() => {
+    if (!selectedGroup) return 0;
+    const existing = new Set(existingMemberIds);
+    const leadId = typeof selectedGroup.leadId === 'object' ? selectedGroup.leadId._id : selectedGroup.leadId;
+    const ids = new Set<string>([String(leadId)]);
+    for (const m of selectedGroup.memberIds) ids.add(m._id);
+    return [...ids].filter((id) => !existing.has(id)).length;
+  }, [selectedGroup, existingMemberIds]);
+
+  const canMakeLeadGroup = canAssignLead && !!selectedGroup;
 
   const handle = async () => {
-    if (!selectedId) { toast.error('Select a user'); return; }
     setLoading(true);
     try {
-      await projectsApi.addMember(projectId, selectedId, {
-        makeOwner: canMakeOwner && makeOwner,
-      });
-      toast.success(makeOwner && canMakeOwner ? 'Member added and made project owner' : 'Member added');
+      if (mode === 'group') {
+        if (!selectedGroupId) {
+          toast.error('Select a group');
+          return;
+        }
+        await projectsApi.addMembersFromGroup(projectId, selectedGroupId, {
+          makeLead: canMakeLeadGroup && makeLead,
+        });
+        toast.success(
+          makeLead && canMakeLeadGroup
+            ? 'Group added and PM set as project lead'
+            : 'Group members added',
+        );
+      } else {
+        if (!selectedId) {
+          toast.error('Select a user');
+          return;
+        }
+        await projectsApi.addMember(projectId, selectedId, {
+          makeLead: canMakeLeadIndividual && makeLead,
+        });
+        toast.success(
+          makeLead && canMakeLeadIndividual
+            ? 'Member added and set as project lead'
+            : 'Member added',
+        );
+      }
       onSuccess();
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to add member');
@@ -918,57 +1002,119 @@ function AddMemberModal({
     }
   };
 
+  const canSubmit =
+    mode === 'group'
+      ? !!selectedGroupId && groupNewCount > 0
+      : !!selectedId;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="card max-w-sm w-full p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Add Member</h2>
-        {available.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-4">All users are already members</p>
-        ) : (
-          <select
-            className="input w-full mb-4"
-            value={selectedId}
-            onChange={(e) => {
-              setSelectedId(e.target.value);
-              setMakeOwner(false);
-            }}
+      <div className="card max-w-md w-full p-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Add Members</h2>
+
+        <div className="flex gap-1 mb-4 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+          <button
+            type="button"
+            className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              mode === 'individual'
+                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            onClick={() => { setMode('individual'); setMakeLead(false); }}
           >
-            <option value="">Select a user…</option>
-            {available.map((u) => (
-              <option key={u._id} value={u._id}>
-                {u.name} ({u.role.replace('_', ' ')})
-              </option>
-            ))}
-          </select>
+            Individual
+          </button>
+          {groups.length > 0 && (
+            <button
+              type="button"
+              className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                mode === 'group'
+                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+              onClick={() => { setMode('group'); setMakeLead(false); setSelectedId(''); }}
+            >
+              From group
+            </button>
+          )}
+        </div>
+
+        {mode === 'individual' ? (
+          available.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-4">All users are already members</p>
+          ) : (
+            <select
+              className="input w-full mb-4"
+              value={selectedId}
+              onChange={(e) => {
+                setSelectedId(e.target.value);
+                setMakeLead(false);
+              }}
+            >
+              <option value="">Select a user…</option>
+              {available.map((u) => (
+                <option key={u._id} value={u._id}>
+                  {u.name} ({u.role.replace('_', ' ')})
+                </option>
+              ))}
+            </select>
+          )
+        ) : (
+          <>
+            <select
+              className="input w-full mb-2"
+              value={selectedGroupId}
+              onChange={(e) => {
+                setSelectedGroupId(e.target.value);
+                setMakeLead(false);
+              }}
+            >
+              <option value="">Select a group…</option>
+              {groups.map((g) => (
+                <option key={g._id} value={g._id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            {selectedGroup && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                {groupNewCount > 0
+                  ? `${groupNewCount} new member${groupNewCount !== 1 ? 's' : ''} will be added (already on project are skipped).`
+                  : 'All members of this group are already on the project.'}
+              </p>
+            )}
+          </>
         )}
-        {canMakeOwner && (
+
+        {((mode === 'individual' && canMakeLeadIndividual) || (mode === 'group' && canMakeLeadGroup)) && (
           <label className="flex items-start gap-2 mb-4 cursor-pointer">
             <input
               type="checkbox"
               className="mt-1 rounded border-slate-300"
-              checked={makeOwner}
-              onChange={(e) => setMakeOwner(e.target.checked)}
+              checked={makeLead}
+              onChange={(e) => setMakeLead(e.target.checked)}
             />
             <span className="text-sm text-slate-600 dark:text-slate-300">
-              Make this PM the project owner
+              {mode === 'group' ? 'Make group PM the project lead' : 'Make this PM the project lead'}
               <span className="block text-xs text-slate-400 mt-0.5">
-                They can manage tasks. The current owner stays a member.
+                Full project control. The admin owner is unchanged.
               </span>
             </span>
           </label>
         )}
+
         <div className="flex gap-3 justify-end">
           <button className="btn-secondary" onClick={onClose} disabled={loading}>
             Cancel
           </button>
-          {available.length > 0 && (
+          {(mode === 'group' || available.length > 0) && (
             <button
               className="btn-primary flex items-center gap-2"
               onClick={handle}
-              disabled={loading || !selectedId}
+              disabled={loading || !canSubmit}
             >
               {loading && <Spinner size="sm" />}
-              {loading ? 'Adding…' : 'Add Member'}
+              {loading ? 'Adding…' : mode === 'group' ? 'Add Group' : 'Add Member'}
             </button>
           )}
         </div>

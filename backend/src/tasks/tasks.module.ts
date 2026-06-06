@@ -7,12 +7,15 @@ import { ProjectsModule } from '../projects/projects.module';
 import { ActivityModule } from '../activity/activity.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { UsersModule } from '../users/users.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Task.name, schema: TaskSchema }]),
     ProjectsModule,
     ActivityModule,
     NotificationsModule,
+    UsersModule,
   ],
   providers: [TasksService],
   controllers: [TasksController],

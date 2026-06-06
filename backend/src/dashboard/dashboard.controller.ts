@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,5 +15,14 @@ export class DashboardController {
   @Get()
   getSummary(@CurrentUser() user: UserDocument) {
     return this.dashboardService.getSummary(user);
+  }
+
+  @Get('my-work')
+  getMyWork(
+    @CurrentUser() user: UserDocument,
+    @Query('project') project?: string,
+    @Query('assignee') assignee?: string,
+  ) {
+    return this.dashboardService.getMyWork(user, { project, assignee });
   }
 }

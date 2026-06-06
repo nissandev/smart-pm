@@ -15,6 +15,7 @@ export enum ActionType {
   MEMBER_ADDED = 'member_added',
   MEMBER_REMOVED = 'member_removed',
   PROJECT_OWNERSHIP_TRANSFERRED = 'project_ownership_transferred',
+  PROJECT_LEAD_ASSIGNED = 'project_lead_assigned',
   USER_LOGIN = 'user_login',
 }
 

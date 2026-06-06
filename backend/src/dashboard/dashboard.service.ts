@@ -179,13 +179,78 @@ export class DashboardService {
 
   private buildProjectQuery(user: UserDocument) {
     if (user.role === UserRole.ADMIN) return {};
-    if (user.role === UserRole.PROJECT_MANAGER) return { createdBy: (user as any)._id };
+    if (user.role === UserRole.PROJECT_MANAGER) {
+      return { $or: [{ leadId: (user as any)._id }, { createdBy: (user as any)._id }] };
+    }
     return { members: (user as any)._id };
   }
 
   private buildTaskQuery(user: UserDocument, projectIds: any[]) {
     if (user.role === UserRole.MEMBER) return { assignedTo: (user as any)._id };
     return { project: { $in: projectIds } };
+  }
+
+  async getMyWork(
+    user: UserDocument,
+    filters: { project?: string; assignee?: string } = {},
+  ) {
+    const projectQuery = this.buildProjectQuery(user);
+    let projects = await this.projectModel.find(projectQuery).select('name').lean();
+
+    if (filters.project) {
+      projects = projects.filter((p) => p._id.toString() === filters.project);
+    }
+
+    const projectIds = projects.map((p) => p._id);
+    const taskQuery: any = this.buildTaskQuery(user, projectIds);
+    if (filters.assignee) {
+      taskQuery.assignedTo = filters.assignee;
+    }
+
+    const tasks = await this.taskModel
+      .find(taskQuery)
+      .populate('project', 'name')
+      .populate('assignedTo', 'name email avatar')
+      .sort({ dueDate: 1 })
+      .lean();
+
+    const now = new Date();
+    const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+    const incomplete = tasks.filter((t) => t.status !== TaskStatus.COMPLETED);
+
+    const overdue = incomplete.filter((t) => new Date(t.dueDate) < now);
+    const dueSoon = incomplete.filter((t) => {
+      const due = new Date(t.dueDate);
+      return due >= now && due <= in48h;
+    });
+    const stagnant = incomplete.filter(
+      (t) => t.status === TaskStatus.TODO && new Date(t.dueDate) < now,
+    );
+
+    const assigneeMap = new Map<string, string>();
+    for (const t of tasks) {
+      if (!t.assignedTo) continue;
+      const id = (t.assignedTo as any)._id?.toString() ?? t.assignedTo.toString();
+      const name = (t.assignedTo as any).name ?? 'Unknown';
+      assigneeMap.set(id, name);
+    }
+
+    return {
+      counts: {
+        overdue: overdue.length,
+        dueSoon: dueSoon.length,
+        stagnant: stagnant.length,
+      },
+      overdue,
+      dueSoon,
+      stagnant,
+      filters: {
+        projects: projects.map((p) => ({ _id: p._id, name: p.name })),
+        assignees: Array.from(assigneeMap.entries())
+          .map(([_id, name]) => ({ _id, name }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      },
+    };
   }
 
   private buildMemberWorkload(tasks: any[]) {

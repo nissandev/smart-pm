@@ -5,9 +5,15 @@ import { Transform } from 'class-transformer';
 export class AddMemberDto {
   @ApiPropertyOptional({
     description:
-      'Admin only. When true and the added user is a Project Manager, ' +
-      'transfers project ownership (createdBy) to them. The previous owner stays a member.',
+      'When true and the added user is a Project Manager, sets them as project lead. ' +
+      'The admin owner (createdBy) is unchanged.',
   })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === true || value === 'true')
+  makeLead?: boolean;
+
+  @ApiPropertyOptional({ description: 'Deprecated alias for makeLead.' })
   @IsOptional()
   @IsBoolean()
   @Transform(({ value }) => value === true || value === 'true')

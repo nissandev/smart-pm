@@ -7,6 +7,7 @@ import { ActivityModule } from '../activity/activity.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Task, TaskSchema } from '../tasks/task.schema';
 import { UsersModule } from '../users/users.module';
+import { GroupsModule } from '../groups/groups.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UsersModule } from '../users/users.module';
     forwardRef(() => ActivityModule),
     NotificationsModule,
     UsersModule,
+    GroupsModule,
   ],
   providers: [ProjectsService],
   controllers: [ProjectsController],

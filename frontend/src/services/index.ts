@@ -1,6 +1,6 @@
 import api from './api';
 import type {
-  Project, Task, User, DashboardStats, Paginated, Activity,
+  Project, Task, User, TeamGroup, DashboardStats, MyWorkStats, Paginated, Activity,
   NotificationListResponse,
 } from '../types';
 
@@ -28,9 +28,28 @@ export interface CreateProjectInput {
   description?: string;
   deadline: string;
   status?: Project['status'];
-  /** Admin only — assign a PM as project owner at creation time. */
+  /** Admin only — assign a PM as project lead at creation time. */
+  leadId?: string;
+  /** @deprecated use leadId */
   ownerId?: string;
+  /** Copy group members into the project at creation (snapshot). */
+  teamId?: string;
 }
+
+// ── Groups ────────────────────────────────────────────────────
+export interface CreateGroupInput {
+  name: string;
+  leadId: string;
+  memberIds: string[];
+}
+
+export const groupsApi = {
+  getAll: () => api.get<TeamGroup[]>('/groups'),
+  getById: (id: string) => api.get<TeamGroup>(`/groups/${id}`),
+  create: (data: CreateGroupInput) => api.post<TeamGroup>('/groups', data),
+  update: (id: string, data: Partial<CreateGroupInput>) => api.patch<TeamGroup>(`/groups/${id}`, data),
+  delete: (id: string) => api.delete(`/groups/${id}`),
+};
 
 export const projectsApi = {
   getAll: () => api.get<Project[]>('/projects'),
@@ -39,9 +58,14 @@ export const projectsApi = {
   create: (data: CreateProjectInput) => api.post<Project>('/projects', data),
   update: (id: string, data: Partial<Project>) => api.patch<Project>(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
-  addMember: (projectId: string, memberId: string, options?: { makeOwner?: boolean }) =>
+  addMember: (projectId: string, memberId: string, options?: { makeLead?: boolean; makeOwner?: boolean }) =>
     api.post<Project>(`/projects/${projectId}/members/${memberId}`, {
-      makeOwner: options?.makeOwner ?? false,
+      makeLead: options?.makeLead ?? options?.makeOwner ?? false,
+    }),
+  addMembersFromGroup: (projectId: string, teamId: string, options?: { makeLead?: boolean; makeOwner?: boolean }) =>
+    api.post<Project>(`/projects/${projectId}/members/from-group`, {
+      teamId,
+      makeLead: options?.makeLead ?? options?.makeOwner ?? false,
     }),
   removeMember: (projectId: string, memberId: string) =>
     api.delete<Project>(`/projects/${projectId}/members/${memberId}`),
@@ -96,6 +120,8 @@ export const activityApi = {
 // ── Dashboard ─────────────────────────────────────────────────
 export const dashboardApi = {
   getSummary: () => api.get<DashboardStats>('/dashboard'),
+  getMyWork: (filters?: { project?: string; assignee?: string }) =>
+    api.get<MyWorkStats>('/dashboard/my-work', { params: filters }),
 };
 
 // ── Notifications ─────────────────────────────────────────────

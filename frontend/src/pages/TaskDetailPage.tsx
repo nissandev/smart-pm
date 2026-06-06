@@ -15,6 +15,7 @@ import {
 } from '../components/shared';
 import type { Task, TaskStatus, TaskPriority, User, Project, TaskAttachment } from '../types';
 import { canChangeTaskStatus, getTaskEditMode } from '../utils/taskPermissions';
+import { invalidateTaskQueries } from '../utils/invalidateTaskQueries';
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,7 +40,7 @@ export default function TaskDetailPage() {
     mutationFn: (status: TaskStatus) => tasksApi.update(id!, { status }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['task', id] });
-      qc.invalidateQueries({ queryKey: ['tasks'] });
+      invalidateTaskQueries(qc);
       toast.success('Status updated');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
@@ -48,7 +49,7 @@ export default function TaskDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: () => tasksApi.delete(id!),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] });
+      invalidateTaskQueries(qc);
       navigate('/tasks');
       toast.success('Task deleted');
     },

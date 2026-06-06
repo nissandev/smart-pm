@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, FolderKanban, CheckSquare,
+  LayoutDashboard, FolderKanban, CheckSquare, Briefcase,
   Users, Activity, LogOut, X,
   UserCog, Zap,
 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
+  { to: '/my-work', icon: Briefcase, label: 'My Work' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
   { to: '/team', icon: Users, label: 'Team' },

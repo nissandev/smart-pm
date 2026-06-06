@@ -17,6 +17,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.schema';
 import { Task, TaskDocument } from '../tasks/task.schema';
 import { UsersService } from '../users/users.service';
+import { GroupsService } from '../groups/groups.service';
+import { isProjectLead } from './project-lead.util';
 
 @Injectable()
 export class ProjectsService {
@@ -26,6 +28,7 @@ export class ProjectsService {
     private activityService: ActivityService,
     private notifications: NotificationsService,
     private usersService: UsersService,
+    private groupsService: GroupsService,
   ) {}
 
   async create(dto: CreateProjectDto, user: UserDocument): Promise<ProjectDocument> {
@@ -40,39 +43,59 @@ export class ProjectsService {
     // PRD §03: project name must be unique per team (case-insensitive)
     await this.assertUniqueName(dto.name);
 
-    const { createdBy, members } = await this.resolveInitialOwner(dto.ownerId, user);
-    const { ownerId: _ownerId, ...projectFields } = dto;
+    let leadId = dto.leadId ?? dto.ownerId;
+    let teamMemberIds: Types.ObjectId[] = [];
+    let teamId: Types.ObjectId | undefined;
+
+    if (dto.teamId) {
+      const group =
+        user.role === UserRole.ADMIN
+          ? await this.groupsService.findByIdForProject(dto.teamId)
+          : await this.groupsService.findById(dto.teamId, user);
+
+      if (!leadId) {
+        leadId = group.leadId.toString();
+      }
+      teamMemberIds = [...group.memberIds, group.leadId];
+      teamId = group._id as Types.ObjectId;
+    }
+
+    const { createdBy, leadId: leadObjectId, members } = await this.resolveInitialSetup(leadId, user);
+    const mergedMembers = this.mergeMemberIds(members, teamMemberIds);
+    const { ownerId: _ownerId, leadId: _leadId, teamId: _teamId, ...projectFields } = dto;
 
     const project = new this.projectModel({
       ...projectFields,
       createdBy,
-      members,
+      ...(leadObjectId ? { leadId: leadObjectId } : {}),
+      members: mergedMembers,
+      ...(teamId ? { teamId } : {}),
     });
     const saved = await project.save();
     await saved.populate([
-      { path: 'createdBy', select: 'name email' },
+      { path: 'createdBy', select: 'name email role' },
+      { path: 'leadId', select: 'name email role' },
       { path: 'members', select: 'name email role' },
+      { path: 'teamId', select: 'name leadId', populate: { path: 'leadId', select: 'name email' } },
     ]);
 
-    const ownerName = (saved.createdBy as any)?.name ?? 'owner';
-    const delegated = createdBy.toString() !== (user as any)._id.toString();
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.PROJECT_CREATED,
       entityType: 'project',
       entityId: saved._id,
-      description: delegated
-        ? `Project "${saved.name}" was created (owner: ${ownerName})`
+      description: leadObjectId
+        ? `Project "${saved.name}" was created (lead: ${(saved.leadId as any)?.name ?? 'PM'})`
         : `Project "${saved.name}" was created`,
       project: saved._id,
     });
 
-    if (delegated) {
+    if (leadObjectId) {
       await this.notifications.create({
-        recipient: createdBy,
+        recipient: leadObjectId,
         actor: (user as any)._id,
         type: NotificationType.MEMBER_ADDED,
-        title: 'You are now the owner of a project',
+        title: 'You are the lead of a new project',
         message: `"${saved.name}"`,
         project: saved._id,
       });
@@ -86,13 +109,15 @@ export class ProjectsService {
       user.role === UserRole.ADMIN
         ? {}
         : user.role === UserRole.PROJECT_MANAGER
-          ? { createdBy: user._id }
+          ? { $or: [{ leadId: user._id }, { createdBy: user._id }] }
           : { members: user._id };
 
     return this.projectModel
       .find(query)
-      .populate('createdBy', 'name email')
+      .populate('createdBy', 'name email role')
+      .populate('leadId', 'name email role')
       .populate({ path: 'members', model: 'User', select: 'name email role' })
+      .populate({ path: 'teamId', select: 'name' })
       .sort({ createdAt: -1 })
       .exec();
   }
@@ -100,8 +125,10 @@ export class ProjectsService {
   async findById(id: string, user: UserDocument): Promise<ProjectDocument> {
     const project = await this.projectModel
       .findById(id)
-      .populate('createdBy', 'name email')
-      .populate({ path: 'members', model: 'User', select: 'name email role avatar' });
+      .populate('createdBy', 'name email role')
+      .populate('leadId', 'name email role')
+      .populate({ path: 'members', model: 'User', select: 'name email role avatar' })
+      .populate({ path: 'teamId', select: 'name leadId', populate: { path: 'leadId', select: 'name email' } });
 
     if (!project) throw new NotFoundException('Project not found');
     this.checkAccess(project, user);
@@ -111,7 +138,7 @@ export class ProjectsService {
   async update(id: string, dto: UpdateProjectDto, user: UserDocument): Promise<ProjectDocument> {
     const project = await this.projectModel.findById(id);
     if (!project) throw new NotFoundException('Project not found');
-    this.checkOwnerOrAdmin(project, user);
+    this.checkLeadOrAdmin(project, user);
 
     if (dto.deadline) {
       const deadline = new Date(dto.deadline);
@@ -129,7 +156,8 @@ export class ProjectsService {
 
     const updated = await this.projectModel
       .findByIdAndUpdate(id, dto, { new: true })
-      .populate('createdBy', 'name email')
+      .populate('createdBy', 'name email role')
+      .populate('leadId', 'name email role')
       .populate({ path: 'members', model: 'User', select: 'name email role' });
 
     await this.activityService.log({
@@ -147,7 +175,7 @@ export class ProjectsService {
   async remove(id: string, user: UserDocument): Promise<void> {
     const project = await this.projectModel.findById(id);
     if (!project) throw new NotFoundException('Project not found');
-    this.checkOwnerOrAdmin(project, user);
+    this.checkLeadOrAdmin(project, user);
 
     // PRD §03: deleting a project cascades to all its tasks
     const deleted = await this.taskModel.deleteMany({ project: project._id });
@@ -167,11 +195,11 @@ export class ProjectsService {
     projectId: string,
     memberId: string,
     user: UserDocument,
-    makeOwner = false,
+    makeLead = false,
   ): Promise<ProjectDocument> {
     const project = await this.projectModel.findById(projectId);
     if (!project) throw new NotFoundException('Project not found');
-    this.checkOwnerOrAdmin(project, user);
+    this.checkLeadOrAdmin(project, user);
 
     const memberObjectId = new Types.ObjectId(memberId);
     if (project.members.some((m) => m.equals(memberObjectId))) {
@@ -183,31 +211,24 @@ export class ProjectsService {
       throw new BadRequestException('Cannot add an inactive user');
     }
 
-    if (makeOwner) {
-      if (user.role !== UserRole.ADMIN) {
-        throw new ForbiddenException('Only admins can transfer project ownership');
-      }
+    if (makeLead) {
       if (memberUser.role !== UserRole.PROJECT_MANAGER) {
-        throw new BadRequestException('Only Project Managers can be made project owner');
+        throw new BadRequestException('Only Project Managers can be made project lead');
       }
     }
 
     project.members.push(memberObjectId);
 
-    const previousOwnerId = project.createdBy.toString();
-    if (makeOwner) {
-      project.createdBy = memberObjectId;
-      // Keep the previous owner in members so they retain access.
-      const prevOwnerObjectId = new Types.ObjectId(previousOwnerId);
-      if (!project.members.some((m) => m.equals(prevOwnerObjectId))) {
-        project.members.push(prevOwnerObjectId);
-      }
+    if (makeLead) {
+      project.leadId = memberObjectId;
     }
 
     const saved = await project.save();
     await saved.populate([
-      { path: 'createdBy', select: 'name email' },
+      { path: 'createdBy', select: 'name email role' },
+      { path: 'leadId', select: 'name email role' },
       { path: 'members', select: 'name email role' },
+      { path: 'teamId', select: 'name' },
     ]);
 
     await this.activityService.log({
@@ -228,13 +249,13 @@ export class ProjectsService {
       project: project._id,
     });
 
-    if (makeOwner) {
+    if (makeLead) {
       await this.activityService.log({
         actor: (user as any)._id,
-        actionType: ActionType.PROJECT_OWNERSHIP_TRANSFERRED,
+        actionType: ActionType.PROJECT_LEAD_ASSIGNED,
         entityType: 'project',
         entityId: project._id,
-        description: `Ownership of "${project.name}" was transferred to ${memberUser.name}`,
+        description: `${memberUser.name} is now the lead of "${project.name}"`,
         project: project._id,
       });
 
@@ -242,7 +263,108 @@ export class ProjectsService {
         recipient: memberObjectId,
         actor: (user as any)._id,
         type: NotificationType.MEMBER_ADDED,
-        title: 'You are now the owner of a project',
+        title: 'You are now the lead of a project',
+        message: `"${project.name}"`,
+        project: project._id,
+      });
+    }
+
+    return saved;
+  }
+
+  async addMembersFromGroup(
+    projectId: string,
+    teamId: string,
+    user: UserDocument,
+    makeLead = false,
+  ): Promise<ProjectDocument> {
+    const project = await this.projectModel.findById(projectId);
+    if (!project) throw new NotFoundException('Project not found');
+    this.checkLeadOrAdmin(project, user);
+
+    const group =
+      user.role === UserRole.ADMIN
+        ? await this.groupsService.findByIdForProject(teamId)
+        : await this.groupsService.findById(teamId, user);
+
+    const candidateIds = [
+      group.leadId,
+      ...group.memberIds,
+    ].map((id) => id.toString());
+
+    const uniqueCandidates = [...new Set(candidateIds)];
+    const existing = new Set(project.members.map((m) => m.toString()));
+    const toAdd = uniqueCandidates.filter((id) => !existing.has(id));
+
+    if (toAdd.length === 0) {
+      throw new BadRequestException('All group members are already on this project');
+    }
+
+    const groupLeadId = group.leadId.toString();
+    if (makeLead) {
+      const leadUser = await this.usersService.findById(groupLeadId);
+      if (leadUser.role !== UserRole.PROJECT_MANAGER) {
+        throw new BadRequestException('Group lead must be a Project Manager');
+      }
+    }
+
+    for (const memberId of toAdd) {
+      const memberUser = await this.usersService.findById(memberId);
+      if (!memberUser.isActive) {
+        throw new BadRequestException(`Cannot add inactive user: ${memberUser.email}`);
+      }
+      project.members.push(new Types.ObjectId(memberId));
+    }
+
+    project.teamId = group._id as Types.ObjectId;
+
+    if (makeLead) {
+      project.leadId = new Types.ObjectId(groupLeadId);
+    }
+
+    const saved = await project.save();
+    await saved.populate([
+      { path: 'createdBy', select: 'name email role' },
+      { path: 'leadId', select: 'name email role' },
+      { path: 'members', select: 'name email role' },
+      { path: 'teamId', select: 'name leadId', populate: { path: 'leadId', select: 'name email' } },
+    ]);
+
+    await this.activityService.log({
+      actor: (user as any)._id,
+      actionType: ActionType.MEMBER_ADDED,
+      entityType: 'project',
+      entityId: project._id,
+      description: `Group "${group.name}" was added to "${project.name}" (${toAdd.length} member${toAdd.length !== 1 ? 's' : ''})`,
+      project: project._id,
+    });
+
+    for (const memberId of toAdd) {
+      await this.notifications.create({
+        recipient: new Types.ObjectId(memberId),
+        actor: (user as any)._id,
+        type: NotificationType.MEMBER_ADDED,
+        title: 'You were added to a project',
+        message: `"${project.name}"`,
+        project: project._id,
+      });
+    }
+
+    if (makeLead) {
+      const leadUser = await this.usersService.findById(groupLeadId);
+      await this.activityService.log({
+        actor: (user as any)._id,
+        actionType: ActionType.PROJECT_LEAD_ASSIGNED,
+        entityType: 'project',
+        entityId: project._id,
+        description: `${leadUser.name} is now the lead of "${project.name}" (via group "${group.name}")`,
+        project: project._id,
+      });
+      await this.notifications.create({
+        recipient: new Types.ObjectId(groupLeadId),
+        actor: (user as any)._id,
+        type: NotificationType.MEMBER_ADDED,
+        title: 'You are now the lead of a project',
         message: `"${project.name}"`,
         project: project._id,
       });
@@ -305,17 +427,46 @@ export class ProjectsService {
   async removeMember(projectId: string, memberId: string, user: UserDocument): Promise<ProjectDocument> {
     const project = await this.projectModel.findById(projectId);
     if (!project) throw new NotFoundException('Project not found');
-    this.checkOwnerOrAdmin(project, user);
+    this.checkLeadOrAdmin(project, user);
 
-    project.members = project.members.filter((m) => !m.equals(new Types.ObjectId(memberId)));
+    const actorId = (user as any)._id.toString();
+    const targetId = memberId.toString();
+    const ownerId = project.createdBy.toString();
+
+    if (targetId === actorId) {
+      throw new BadRequestException('You cannot remove yourself from the project');
+    }
+
+    if (targetId === ownerId) {
+      throw new BadRequestException(
+        'Cannot remove the project owner (admin). They always retain ownership of this project.',
+      );
+    }
+
+    if (!project.members.some((m) => m.toString() === targetId)) {
+      throw new BadRequestException('User is not a member of this project');
+    }
+
+    const removedUser = await this.usersService.findById(memberId);
+
+    project.members = project.members.filter((m) => m.toString() !== targetId);
+    if (project.leadId?.toString() === targetId) {
+      project.leadId = undefined;
+    }
     const saved = await project.save();
+    await saved.populate([
+      { path: 'createdBy', select: 'name email role' },
+      { path: 'leadId', select: 'name email role' },
+      { path: 'members', select: 'name email role' },
+      { path: 'teamId', select: 'name' },
+    ]);
 
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.MEMBER_REMOVED,
       entityType: 'member',
       entityId: new Types.ObjectId(memberId),
-      description: `A member was removed from "${project.name}"`,
+      description: `${removedUser.name} was removed from "${project.name}"`,
       project: project._id,
     });
 
@@ -336,46 +487,65 @@ export class ProjectsService {
     if (user.role === UserRole.ADMIN) return;
     const userId = (user as any)._id.toString();
     const isMember = project.members.some((m: any) => m._id?.toString() === userId || m.toString() === userId);
-    const isOwner = project.createdBy.toString() === userId;
-    if (!isMember && !isOwner) throw new ForbiddenException('Access denied');
+    const isLead = isProjectLead(project, userId);
+    if (!isMember && !isLead) throw new ForbiddenException('Access denied');
   }
 
-  private checkOwnerOrAdmin(project: ProjectDocument, user: UserDocument) {
+  private checkLeadOrAdmin(project: ProjectDocument, user: UserDocument) {
     if (user.role === UserRole.ADMIN) return;
-    if (project.createdBy.toString() !== (user as any)._id.toString()) {
-      throw new ForbiddenException('Only the project owner or admin can perform this action');
+    const userId = (user as any)._id.toString();
+    if (!isProjectLead(project, userId)) {
+      throw new ForbiddenException('Only the project lead or admin can perform this action');
     }
   }
 
-  /** Admin may delegate ownership to a PM at creation time. */
-  private async resolveInitialOwner(
-    ownerId: string | undefined,
+  private mergeMemberIds(base: Types.ObjectId[], extra: Types.ObjectId[]): Types.ObjectId[] {
+    const seen = new Set<string>();
+    const result: Types.ObjectId[] = [];
+    for (const id of [...base, ...extra]) {
+      const key = id.toString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(id);
+    }
+    return result;
+  }
+
+  /** Admin always remains createdBy; optional PM is stored as leadId. */
+  private async resolveInitialSetup(
+    leadId: string | undefined,
     actor: UserDocument,
-  ): Promise<{ createdBy: Types.ObjectId; members: Types.ObjectId[] }> {
+  ): Promise<{ createdBy: Types.ObjectId; leadId?: Types.ObjectId; members: Types.ObjectId[] }> {
     const actorId = new Types.ObjectId((actor as any)._id.toString());
 
-    if (!ownerId) {
-      return { createdBy: actorId, members: [actorId] };
+    if (actor.role === UserRole.ADMIN) {
+      const members: Types.ObjectId[] = [actorId];
+      let leadObjectId: Types.ObjectId | undefined;
+
+      if (leadId) {
+        const lead = await this.usersService.findById(leadId);
+        if (lead.role !== UserRole.PROJECT_MANAGER) {
+          throw new BadRequestException('Project lead must be a Project Manager');
+        }
+        if (!lead.isActive) {
+          throw new BadRequestException('Project lead account is not active');
+        }
+        leadObjectId = new Types.ObjectId(leadId);
+        members.push(leadObjectId);
+      }
+
+      return {
+        createdBy: actorId,
+        leadId: leadObjectId,
+        members: this.mergeMemberIds(members, []),
+      };
     }
 
-    if (actor.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only admins can assign a project owner');
+    if (actor.role === UserRole.PROJECT_MANAGER) {
+      return { createdBy: actorId, leadId: actorId, members: [actorId] };
     }
 
-    const owner = await this.usersService.findById(ownerId);
-    if (owner.role !== UserRole.PROJECT_MANAGER) {
-      throw new BadRequestException('Project owner must be a Project Manager');
-    }
-    if (!owner.isActive) {
-      throw new BadRequestException('Project owner account is not active');
-    }
-
-    const ownerObjectId = new Types.ObjectId(ownerId);
-    const members = [actorId, ownerObjectId].filter(
-      (id, idx, arr) => arr.findIndex((x) => x.equals(id)) === idx,
-    );
-
-    return { createdBy: ownerObjectId, members };
+    throw new ForbiddenException('Only admins and project managers can create projects');
   }
 
   // PRD §03: project name is unique per team. We treat the entire workspace as one team

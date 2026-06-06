@@ -119,6 +119,8 @@ export function PageHeader({
   );
 }
 
+export { AssigneePicker } from './AssigneePicker';
+
 // ── Avatar ────────────────────────────────────────────────────
 export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
   const s = { sm: 'w-7 h-7 text-xs', md: 'w-9 h-9 text-sm', lg: 'w-12 h-12 text-base' }[size];

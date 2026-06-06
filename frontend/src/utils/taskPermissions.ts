@@ -1,13 +1,7 @@
 import type { Project, Task, User } from '../types';
+import { getProjectLeadId } from './projectPermissions';
 
 export type TaskEditMode = 'none' | 'full' | 'delegate';
-
-export function getProjectOwnerId(project: Project | string | undefined): string | undefined {
-  if (!project || typeof project === 'string') return undefined;
-  const createdBy = project.createdBy;
-  if (!createdBy) return undefined;
-  return typeof createdBy === 'object' ? (createdBy as User)._id : String(createdBy);
-}
 
 export function getTaskEditMode(task: Task, me: User | null | undefined): TaskEditMode {
   if (!me) return 'none';
@@ -18,8 +12,8 @@ export function getTaskEditMode(task: Task, me: User | null | undefined): TaskEd
 
   if (me.role === 'project_manager') {
     const project = typeof task.project === 'object' ? task.project : undefined;
-    const ownerId = getProjectOwnerId(project);
-    if (ownerId === me._id) return 'full';
+    const leadId = getProjectLeadId(project);
+    if (leadId === me._id) return 'full';
     if (assigneeId === me._id) return 'delegate';
     return 'none';
   }

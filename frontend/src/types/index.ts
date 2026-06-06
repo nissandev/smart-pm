@@ -12,6 +12,17 @@ export interface User {
   updatedAt: string;
 }
 
+// ── Team Group ────────────────────────────────────────────────
+export interface TeamGroup {
+  _id: string;
+  name: string;
+  leadId: User | string;
+  memberIds: User[];
+  createdBy: User | string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Project ───────────────────────────────────────────────────
 export type ProjectStatus = 'Active' | 'Completed' | 'On Hold';
 
@@ -21,8 +32,12 @@ export interface Project {
   description?: string;
   deadline: string;
   status: ProjectStatus;
+  /** Admin who owns the project record. */
   createdBy: User | string;
+  /** PM who leads the project (full manage access). */
+  leadId?: User | string;
   members: User[];
+  teamId?: TeamGroup | string;
   createdAt: string;
   updatedAt: string;
 }
@@ -134,6 +149,17 @@ export interface ProjectSummary {
   pendingTasks: number;
   completionPct: number;
   deadlineColor: 'red' | 'yellow' | 'green';
+}
+
+export interface MyWorkStats {
+  counts: { overdue: number; dueSoon: number; stagnant: number };
+  overdue: Task[];
+  dueSoon: Task[];
+  stagnant: Task[];
+  filters: {
+    projects: { _id: string; name: string }[];
+    assignees: { _id: string; name: string }[];
+  };
 }
 
 export interface DashboardStats {

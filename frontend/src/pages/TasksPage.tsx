@@ -7,14 +7,16 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, isWithinInterval, addDays, startOfDay } from 'date-fns';
-import { tasksApi, projectsApi, usersApi } from '../services';
+import { tasksApi, projectsApi, usersApi, groupsApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, PriorityBadge,
-  ConfirmModal, Avatar, Spinner,
+  ConfirmModal, Avatar, Spinner, AssigneePicker,
 } from '../components/shared';
-import type { Task, TaskPriority, TaskStatus, Project, User } from '../types';
+import type { Task, TaskPriority, TaskStatus, Project, User, TeamGroup } from '../types';
 import { canChangeTaskStatus, getTaskEditMode } from '../utils/taskPermissions';
+import { invalidateTaskQueries } from '../utils/invalidateTaskQueries';
+import { getTaskAssigneePool } from '../utils/taskAssignees';
 
 const PRIORITY_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 const PAGE_SIZE = 10;
@@ -24,6 +26,7 @@ export default function TasksPage() {
   const navigate = useNavigate();
   const { user: me } = useAuthStore();
   const canManage = me?.role !== 'member';
+  const canUseGroups = me?.role === 'admin' || me?.role === 'project_manager';
 
   // ── Filter / sort state ────────────────────────────────────────
   const [statusFilter, setStatusFilter] = useState('');
@@ -69,6 +72,12 @@ export default function TasksPage() {
     queryFn: () => projectsApi.getAll().then((r) => r.data),
   });
 
+  const { data: groups = [] } = useQuery({
+    queryKey: ['groups'],
+    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    enabled: canUseGroups,
+  });
+
   // Build the assignee dropdown from users (admins) or, for PM, members of their projects.
   const isAdmin = me?.role === 'admin';
   const { data: allUsers = [] } = useQuery({
@@ -93,7 +102,7 @@ export default function TasksPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => tasksApi.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] });
+      invalidateTaskQueries(qc);
       setDeleting(null);
       toast.success('Task deleted');
     },
@@ -153,7 +162,7 @@ export default function TasksPage() {
     tasksApi
       .update(task._id, { status })
       .then(() => {
-        qc.invalidateQueries({ queryKey: ['tasks'] });
+        invalidateTaskQueries(qc);
         toast.success('Status updated');
       })
       .catch((e: any) =>
@@ -379,10 +388,11 @@ export default function TasksPage() {
         <TaskFormModal
           task={editing}
           projects={projects}
+          groups={groups}
           delegateOnly={editing ? getTaskEditMode(editing, me) === 'delegate' : false}
           onClose={() => { setShowCreate(false); setEditing(null); }}
           onSuccess={() => {
-            qc.invalidateQueries({ queryKey: ['tasks'] });
+            invalidateTaskQueries(qc);
             setShowCreate(false);
             setEditing(null);
           }}
@@ -506,10 +516,11 @@ function TaskRow({
 
 // ── TaskFormModal ─────────────────────────────────────────────────
 function TaskFormModal({
-  task, projects, delegateOnly = false, onClose, onSuccess,
+  task, projects, groups, delegateOnly = false, onClose, onSuccess,
 }: {
   task: Task | null;
   projects: Project[];
+  groups: TeamGroup[];
   delegateOnly?: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -523,6 +534,7 @@ function TaskFormModal({
         : (task.project as string)
       : projects[0]?._id || '',
   );
+  const [teamGroupId, setTeamGroupId] = useState('');
   const [assignedTo, setAssignedTo] = useState(
     task?.assignedTo ? (task.assignedTo as User)._id : '',
   );
@@ -537,6 +549,18 @@ function TaskFormModal({
       ? (task.project as Project).members
       : selectedProject?.members
   ) as User[] || [];
+
+  const selectedGroup = groups.find((g) => g._id === teamGroupId);
+  const assigneePool = getTaskAssigneePool(members, selectedGroup);
+
+  const handleTeamGroupChange = (id: string) => {
+    setTeamGroupId(id);
+    const group = groups.find((g) => g._id === id);
+    const pool = getTaskAssigneePool(members, group);
+    if (assignedTo && !pool.some((m) => m._id === assignedTo)) {
+      setAssignedTo('');
+    }
+  };
 
   const handle = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -646,20 +670,28 @@ function TaskFormModal({
               </select>
             </div>
           )}
+          {groups.length > 0 && (
+            <div>
+              <label className="label">Filter by group</label>
+              <select
+                className="input"
+                value={teamGroupId}
+                onChange={(e) => handleTeamGroupChange(e.target.value)}
+              >
+                <option value="">All project members</option>
+                {groups.map((g) => (
+                  <option key={g._id} value={g._id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">Assign To</label>
-            <select
-              className="input"
+            <AssigneePicker
+              users={assigneePool}
               value={assignedTo}
-              onChange={(e) => setAssignedTo(e.target.value)}
-            >
-              <option value="">Unassigned</option>
-              {members.map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+              onChange={setAssignedTo}
+            />
           </div>
           {!delegateOnly && (
             <div className="grid grid-cols-2 gap-4">

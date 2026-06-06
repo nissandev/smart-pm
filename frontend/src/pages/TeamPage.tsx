@@ -1,14 +1,16 @@
 import { useState, useMemo } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { Search, Mail, LayoutGrid, BarChart2, Filter } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { Search, Mail, LayoutGrid, BarChart2, Filter, Plus, Edit2, Trash2, UsersRound } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { usersApi, tasksApi, dashboardApi, projectsApi } from '../services';
+import { usersApi, tasksApi, dashboardApi, projectsApi, groupsApi, type CreateGroupInput } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, Avatar, PriorityBadge, TaskStatusBadge,
+  ConfirmModal, Spinner,
 } from '../components/shared';
-import type { User, UserRole, Task, TaskPriority, TaskStatus, Project } from '../types';
+import type { User, UserRole, Task, TaskPriority, TaskStatus, Project, TeamGroup } from '../types';
 
 const ROLE_STYLES: Record<UserRole, string> = {
   admin: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
@@ -24,12 +26,17 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 export default function TeamPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { user: me } = useAuthStore();
   const isAdminOrPM = me?.role === 'admin' || me?.role === 'project_manager';
   const isAdmin = me?.role === 'admin';
 
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<'members' | 'workload'>('members');
+  const [tab, setTab] = useState<'members' | 'groups' | 'workload'>('members');
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<TeamGroup | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<TeamGroup | null>(null);
+  const [groupSearch, setGroupSearch] = useState('');
 
   // Workload tab filters
   const [wlProject, setWlProject] = useState('');
@@ -40,6 +47,45 @@ export default function TeamPage() {
     queryKey: ['users'],
     queryFn: () => usersApi.getAll().then((r) => r.data),
     enabled: isAdmin,
+  });
+
+  const isPM = me?.role === 'project_manager';
+
+  const { data: groups = [], isLoading: groupsLoading } = useQuery({
+    queryKey: ['groups'],
+    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    enabled: (isAdmin && tab === 'groups') || (isPM && tab === 'members'),
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: (data: CreateGroupInput) => groupsApi.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      setShowCreateGroup(false);
+      toast.success('Group created');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create group'),
+  });
+
+  const updateGroupMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CreateGroupInput> }) =>
+      groupsApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      setEditingGroup(null);
+      toast.success('Group updated');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update group'),
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: (id: string) => groupsApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      setDeletingGroup(null);
+      toast.success('Group deleted');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete group'),
   });
 
   const wlFilters = useMemo(() => {
@@ -75,6 +121,22 @@ export default function TeamPage() {
       u.email.toLowerCase().includes(search.toLowerCase()),
   );
 
+  /** PM team = members admin assigned in groups this PM leads. */
+  const pmTeamMembers = useMemo(() => {
+    if (!isPM) return [];
+    const byId = new Map<string, User>();
+    for (const g of groups) {
+      for (const m of g.memberIds) {
+        byId.set(m._id, m);
+      }
+    }
+    return Array.from(byId.values()).filter(
+      (u) =>
+        u.name.toLowerCase().includes(search.toLowerCase()) ||
+        u.email.toLowerCase().includes(search.toLowerCase()),
+    );
+  }, [groups, isPM, search]);
+
   // Group API-filtered tasks by assigned member
   const tasksByMember = useMemo(() => {
     const map = new Map<string, { user: User | null; tasks: Task[] }>();
@@ -88,7 +150,14 @@ export default function TeamPage() {
     return Array.from(map.values()).sort((a, b) => b.tasks.length - a.tasks.length);
   }, [allTasks]);
 
-  const isLoading = usersLoading || tasksLoading;
+  const filteredGroups = groups.filter((g) =>
+    g.name.toLowerCase().includes(groupSearch.toLowerCase()),
+  );
+
+  const isLoading =
+    (tab === 'members' && (isAdmin ? usersLoading : groupsLoading)) ||
+    (tab === 'workload' && tasksLoading) ||
+    (tab === 'groups' && groupsLoading);
   if (isLoading) return <LoadingScreen />;
 
   if (!isAdminOrPM) {
@@ -115,12 +184,25 @@ export default function TeamPage() {
     <div>
       <PageHeader
         title="Team"
-        subtitle={isAdmin ? `${users.length} member${users.length !== 1 ? 's' : ''}` : 'Team workload'}
+        subtitle={
+          isAdmin
+            ? `${users.length} member${users.length !== 1 ? 's' : ''}`
+            : isPM
+            ? `${pmTeamMembers.length} team member${pmTeamMembers.length !== 1 ? 's' : ''}`
+            : 'Team workload'
+        }
         action={
           isAdmin ? (
-            <button className="btn-secondary text-sm" onClick={() => navigate('/users')}>
-              Manage Users
-            </button>
+            <div className="flex gap-2">
+              {tab === 'groups' && (
+                <button className="btn-primary text-sm flex items-center gap-1.5" onClick={() => setShowCreateGroup(true)}>
+                  <Plus className="w-4 h-4" /> New Group
+                </button>
+              )}
+              <button className="btn-secondary text-sm" onClick={() => navigate('/users')}>
+                Manage Users
+              </button>
+            </div>
           ) : undefined
         }
       />
@@ -137,6 +219,18 @@ export default function TeamPage() {
         >
           <LayoutGrid className="w-4 h-4" /> Members
         </button>
+        {isAdmin && (
+          <button
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'groups'
+                ? 'border-brand-500 text-brand-600 dark:text-brand-400'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            onClick={() => setTab('groups')}
+          >
+            <UsersRound className="w-4 h-4" /> Groups
+          </button>
+        )}
         <button
           className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             tab === 'workload'
@@ -149,24 +243,70 @@ export default function TeamPage() {
         </button>
       </div>
 
-      {tab === 'members' && (
+      {tab === 'groups' && isAdmin && (
         <>
-          {isAdmin && (
-            <div className="relative mb-5">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                className="input pl-9"
-                placeholder="Search team members…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          )}
-          {filtered.length === 0 ? (
-            <EmptyState title="No members found" description="Try a different search" />
+          <div className="relative mb-5">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              className="input pl-9"
+              placeholder="Search groups…"
+              value={groupSearch}
+              onChange={(e) => setGroupSearch(e.target.value)}
+            />
+          </div>
+          {filteredGroups.length === 0 ? (
+            <EmptyState
+              title="No groups yet"
+              description="Create reusable teams to assign when creating projects or tasks"
+              action={
+                <button className="btn-primary" onClick={() => setShowCreateGroup(true)}>
+                  Create Group
+                </button>
+              }
+            />
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((u) => (
+              {filteredGroups.map((g) => (
+                <GroupCard
+                  key={g._id}
+                  group={g}
+                  onEdit={() => setEditingGroup(g)}
+                  onDelete={() => setDeletingGroup(g)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === 'members' && (
+        <>
+          <div className="relative mb-5">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              className="input pl-9"
+              placeholder={isPM ? 'Search your team…' : 'Search team members…'}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          {isPM && groups.length > 0 && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+              Your team members from groups you lead ({groups.map((g) => g.name).join(', ')}).
+            </p>
+          )}
+          {(isAdmin ? filtered : pmTeamMembers).length === 0 ? (
+            <EmptyState
+              title={isPM ? 'No team members yet' : 'No members found'}
+              description={
+                isPM
+                  ? 'Ask an admin to create a group under you and add your team members.'
+                  : 'Try a different search'
+              }
+            />
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(isAdmin ? filtered : pmTeamMembers).map((u) => (
                 <MemberCard key={u._id} user={u} isMe={u._id === me?._id} />
               ))}
             </div>
@@ -325,12 +465,205 @@ export default function TeamPage() {
         </div>
         );
       })()}
+
+      {(showCreateGroup || editingGroup) && (
+        <GroupFormModal
+          group={editingGroup}
+          users={users}
+          onClose={() => { setShowCreateGroup(false); setEditingGroup(null); }}
+          onSubmit={(data) => {
+            if (editingGroup) updateGroupMutation.mutate({ id: editingGroup._id, data });
+            else createGroupMutation.mutate(data);
+          }}
+          loading={createGroupMutation.isPending || updateGroupMutation.isPending}
+        />
+      )}
+
+      {deletingGroup && (
+        <ConfirmModal
+          title="Delete Group"
+          description={`Delete "${deletingGroup.name}"? Existing projects keep their members — only the reusable template is removed.`}
+          onConfirm={() => deleteGroupMutation.mutate(deletingGroup._id)}
+          onCancel={() => setDeletingGroup(null)}
+          loading={deleteGroupMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+function GroupCard({
+  group, onEdit, onDelete,
+}: {
+  group: TeamGroup;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const lead = typeof group.leadId === 'object' ? group.leadId : null;
+  return (
+    <div className="card p-5 flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-900 dark:text-white truncate">{group.name}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Lead: {lead?.name ?? '—'}
+          </p>
+        </div>
+        <div className="flex gap-1 flex-shrink-0">
+          <button
+            className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg"
+            onClick={onEdit}
+            title="Edit group"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+            onClick={onDelete}
+            title="Delete group"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {lead && <Avatar name={lead.name} size="sm" />}
+        {group.memberIds.map((m) => (
+          <Avatar key={m._id} name={m.name} size="sm" />
+        ))}
+      </div>
+      <p className="text-xs text-slate-400">
+        {group.memberIds.length} team member{group.memberIds.length !== 1 ? 's' : ''} under {lead?.name ?? 'PM'}
+      </p>
+      {group.memberIds.length > 0 && (
+        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+          {group.memberIds.map((m) => m.name).join(', ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GroupFormModal({
+  group, users, onClose, onSubmit, loading,
+}: {
+  group: TeamGroup | null;
+  users: User[];
+  onClose: () => void;
+  onSubmit: (data: CreateGroupInput) => void;
+  loading: boolean;
+}) {
+  const leadDefault = group
+    ? (typeof group.leadId === 'object' ? group.leadId._id : group.leadId)
+    : '';
+  const membersDefault = group ? group.memberIds.map((m) => m._id) : [];
+
+  const [name, setName] = useState(group?.name || '');
+  const [leadId, setLeadId] = useState(leadDefault);
+  const [memberIds, setMemberIds] = useState<string[]>(membersDefault);
+
+  const projectManagers = users.filter((u) => u.role === 'project_manager');
+  const teamMemberOptions = users.filter((u) => u.role === 'member');
+
+  const handleLeadChange = (id: string) => {
+    setLeadId(id);
+    setMemberIds((prev) => prev.filter((mid) => teamMemberOptions.some((m) => m._id === mid)));
+  };
+
+  const toggleMember = (id: string) => {
+    setMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const handle = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !leadId) {
+      toast.error('Name and PM lead are required');
+      return;
+    }
+    if (memberIds.length === 0) {
+      toast.error('Select at least one team member under this PM');
+      return;
+    }
+    const combined = memberIds.includes(leadId) ? memberIds : [...memberIds, leadId];
+    onSubmit({ name: name.trim(), leadId, memberIds: combined });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="card max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+          {group ? 'Edit Group' : 'New Group'}
+        </h2>
+        <form onSubmit={handle} className="space-y-4">
+          <div>
+            <label className="label">Group name *</label>
+            <input
+              className="input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              placeholder="e.g. Design Squad"
+            />
+          </div>
+          <div>
+            <label className="label">PM lead *</label>
+            <select className="input" value={leadId} onChange={(e) => handleLeadChange(e.target.value)}>
+              <option value="">Select PM</option>
+              {projectManagers.map((u) => (
+                <option key={u._id} value={u._id}>{u.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-400 mt-1">This PM will lead the group and its projects.</p>
+          </div>
+          <div>
+            <label className="label">Team members under this PM *</label>
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
+              {teamMemberOptions.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">No member-role users available.</p>
+              ) : (
+                teamMemberOptions.map((u) => (
+                  <label key={u._id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={memberIds.includes(u._id)}
+                      disabled={!leadId}
+                      onChange={() => toggleMember(u._id)}
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">{u.name}</span>
+                    <span className="text-xs text-slate-400">({u.email})</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              These members become this PM&apos;s team when the group is used on a project.
+            </p>
+          </div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary flex items-center gap-2" disabled={loading}>
+              {loading && <Spinner size="sm" />}
+              {loading ? 'Saving…' : group ? 'Save changes' : 'Create group'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
 function MemberCard({ user, isMe }: { user: User; isMe: boolean }) {
   const navigate = useNavigate();
+  const joinedAt = user.createdAt ? new Date(user.createdAt) : null;
+  const joinedLabel =
+    joinedAt && !Number.isNaN(joinedAt.getTime())
+      ? `Since ${format(joinedAt, 'MMM yyyy')}`
+      : null;
+
   return (
     <div
       className="card p-5 flex flex-col gap-4 cursor-pointer hover:shadow-md transition-shadow"
@@ -353,9 +686,9 @@ function MemberCard({ user, isMe }: { user: User; isMe: boolean }) {
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ROLE_STYLES[user.role]}`}>
           {ROLE_LABELS[user.role]}
         </span>
-        <span className="text-xs text-slate-400">
-          Since {format(new Date(user.createdAt), 'MMM yyyy')}
-        </span>
+        {joinedLabel && (
+          <span className="text-xs text-slate-400">{joinedLabel}</span>
+        )}
       </div>
     </div>
   );
