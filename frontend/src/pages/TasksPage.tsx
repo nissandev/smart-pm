@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Edit2, ChevronRight, Calendar,
-  Search, ArrowUpDown, ChevronLeft,
+  Search, ArrowUpDown, ChevronLeft, LayoutGrid, List,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, isWithinInterval, addDays, startOfDay } from 'date-fns';
@@ -17,9 +17,11 @@ import type { Task, TaskPriority, TaskStatus, Project, User, TeamGroup } from '.
 import { canChangeTaskStatus, getTaskEditMode } from '../utils/taskPermissions';
 import { invalidateTaskQueries } from '../utils/invalidateTaskQueries';
 import { getTaskAssigneePool } from '../utils/taskAssignees';
+import { TaskKanbanBoard } from '../components/tasks/TaskKanbanBoard';
 
 const PRIORITY_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 const PAGE_SIZE = 10;
+type ViewMode = 'board' | 'list';
 
 export default function TasksPage() {
   const qc = useQueryClient();
@@ -38,6 +40,7 @@ export default function TasksPage() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [page, setPage] = useState(1);
+  const [viewMode, setViewMode] = useState<ViewMode>('board');
 
   // ── Modal state ────────────────────────────────────────────────
   const [showCreate, setShowCreate] = useState(false);
@@ -52,13 +55,13 @@ export default function TasksPage() {
   // Build server-side filter params (status, priority, project, assignee, createdBy)
   const serverFilters = useMemo(() => {
     const f: Record<string, string> = {};
-    if (statusFilter) f.status = statusFilter;
+    if (viewMode === 'list' && statusFilter) f.status = statusFilter;
     if (priorityFilter) f.priority = priorityFilter;
     if (projectFilter) f.project = projectFilter;
     if (assigneeFilter) f.assignedTo = assigneeFilter;
     if (createdByFilter) f.createdBy = createdByFilter;
     return f;
-  }, [statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter]);
+  }, [viewMode, statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter]);
 
   // ── Queries ────────────────────────────────────────────────────
   const { data: tasks = [], isLoading, isFetching } = useQuery({
@@ -158,16 +161,24 @@ export default function TasksPage() {
   const from = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
   const to = Math.min(safePage * PAGE_SIZE, filtered.length);
 
-  const handleStatusChange = (task: Task, status: TaskStatus) => {
+  const handleStatusChange = (task: Task, status: TaskStatus, opts?: { silent?: boolean }) => {
+    const queryKey = ['tasks', serverFilters] as const;
+    const previous = qc.getQueryData<Task[]>(queryKey);
+
+    qc.setQueryData<Task[]>(queryKey, (old) =>
+      old?.map((t) => (t._id === task._id ? { ...t, status } : t)),
+    );
+
     tasksApi
       .update(task._id, { status })
       .then(() => {
         invalidateTaskQueries(qc);
-        toast.success('Status updated');
+        if (!opts?.silent) toast.success('Status updated');
       })
-      .catch((e: any) =>
-        toast.error(e?.response?.data?.message || 'Failed to update status'),
-      );
+      .catch((e: any) => {
+        if (previous) qc.setQueryData(queryKey, previous);
+        toast.error(e?.response?.data?.message || 'Failed to update status');
+      });
   };
 
   // ── Initial load ───────────────────────────────────────────────
@@ -190,9 +201,34 @@ export default function TasksPage() {
         }
       />
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-5">
-        <div className="relative flex-1 min-w-48">
+      {/* View toggle + filters */}
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-5">
+        <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800/80 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setViewMode('board')}
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-md text-sm font-medium transition-all ${
+              viewMode === 'board'
+                ? 'bg-white dark:bg-[#16162b] text-brand-600 dark:text-brand-400 shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" /> Board
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-md text-sm font-medium transition-all ${
+              viewMode === 'list'
+                ? 'bg-white dark:bg-[#16162b] text-brand-600 dark:text-brand-400 shadow-sm'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+            }`}
+          >
+            <List className="w-4 h-4" /> List
+          </button>
+        </div>
+
+        <div className="relative w-full sm:flex-1 sm:min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
           <input
             className="input pl-9"
@@ -201,16 +237,18 @@ export default function TasksPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <select
-          className="input w-36"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="">All Status</option>
-          <option value="Todo">Todo</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Completed">Completed</option>
-        </select>
+        {viewMode === 'list' && (
+          <select
+            className="input w-36"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All Status</option>
+            <option value="Todo">Todo</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+        )}
         <select
           className="input w-36"
           value={priorityFilter}
@@ -286,7 +324,7 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {/* Task list with table-level loading overlay */}
+      {/* Task board / list */}
       {filtered.length === 0 && !isFetching ? (
         <EmptyState
           title="No tasks found"
@@ -302,6 +340,17 @@ export default function TasksPage() {
               </button>
             ) : undefined
           }
+        />
+      ) : viewMode === 'board' ? (
+        <TaskKanbanBoard
+          tasks={filtered}
+          me={me}
+          sortBy={sortBy}
+          isFetching={isFetching}
+          onStatusChange={(task, status) => handleStatusChange(task, status, { silent: true })}
+          onEdit={setEditing}
+          onDelete={setDeleting}
+          onNavigate={(task) => navigate(`/tasks/${task._id}`)}
         />
       ) : (
         <div>
