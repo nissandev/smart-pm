@@ -7,12 +7,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, differenceInDays, addDays, startOfDay } from 'date-fns';
-import { projectsApi, usersApi, groupsApi, type CreateProjectInput } from '../services';
+import { projectsApi, usersApi, groupsApi, tasksApi, type CreateProjectInput } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, ProjectStatusBadge, ConfirmModal,
+  ProjectProgressRing,
 } from '../components/shared';
-import type { Project, User, TeamGroup } from '../types';
+import type { Project, User, TeamGroup, Task } from '../types';
 
 const PAGE_SIZE = 12;
 
@@ -40,6 +41,26 @@ export default function ProjectsPage() {
     queryKey: ['projects'],
     queryFn: () => projectsApi.getAll().then((r) => r.data),
   });
+
+  const { data: tasks = [] } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: () => tasksApi.getAll().then((r) => r.data),
+  });
+
+  const taskStatsByProject = useMemo(() => {
+    const map = new Map<string, { total: number; completed: number }>();
+    for (const t of tasks as Task[]) {
+      const pid =
+        typeof t.project === 'object' && t.project !== null
+          ? t.project._id
+          : String(t.project);
+      const entry = map.get(pid) ?? { total: 0, completed: 0 };
+      entry.total += 1;
+      if (t.status === 'Completed') entry.completed += 1;
+      map.set(pid, entry);
+    }
+    return map;
+  }, [tasks]);
 
   // PRD §09: "Created by (Admin view)" project filter — admin-only.
   const isAdmin = user?.role === 'admin';
@@ -189,26 +210,61 @@ export default function ProjectsPage() {
         <EmptyState title="No matches" description="Try adjusting your search or filter" />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginated.map((project) => (
-            <div key={project._id} className="card p-5 hover:shadow-md transition-shadow cursor-pointer group" onClick={() => navigate(`/projects/${project._id}`)}>
-              <div className="flex items-start justify-between mb-3">
-                <ProjectStatusBadge status={project.status} />
-                {canCreate && (
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                    <button className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-colors" onClick={() => setEditing(project)}>
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" onClick={() => setDeleting(project)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
+          {paginated.map((project) => {
+            const stats = taskStatsByProject.get(project._id) ?? { total: 0, completed: 0 };
+            const allTasksDone = stats.total > 0 && stats.completed === stats.total;
+
+            return (
+            <div
+              key={project._id}
+              className={`card p-5 hover:shadow-md transition-all cursor-pointer group ${
+                allTasksDone
+                  ? 'ring-2 ring-emerald-400/70 bg-emerald-50/60 dark:bg-emerald-950/25 border-emerald-200 dark:border-emerald-800/50'
+                  : ''
+              }`}
+              onClick={() => navigate(`/projects/${project._id}`)}
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  <ProjectStatusBadge status={project.status} />
+                  {allTasksDone && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500 text-white">
+                      All tasks done
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <ProjectProgressRing completed={stats.completed} total={stats.total} />
+                  {canCreate && (
+                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                      <button className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-colors" onClick={() => setEditing(project)}>
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" onClick={() => setDeleting(project)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-              <h3 className="font-semibold text-slate-900 dark:text-white mb-1.5 leading-tight">{project.name}</h3>
+              <h3 className={`font-semibold mb-1.5 leading-tight ${
+                allTasksDone
+                  ? 'text-emerald-800 dark:text-emerald-200'
+                  : 'text-slate-900 dark:text-white'
+              }`}>
+                {project.name}
+              </h3>
               {project.description && <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mb-3">{project.description}</p>}
-              <div className={`flex items-center gap-1.5 text-xs font-medium ${deadlineColor(project.deadline)}`}>
-                <Calendar className="w-3.5 h-3.5" />
-                {format(new Date(project.deadline), 'MMM d, yyyy')}
+              <div className="flex items-center justify-between gap-2">
+                <div className={`flex items-center gap-1.5 text-xs font-medium ${deadlineColor(project.deadline)}`}>
+                  <Calendar className="w-3.5 h-3.5" />
+                  {format(new Date(project.deadline), 'MMM d, yyyy')}
+                </div>
+                {stats.total > 0 && (
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    {stats.completed}/{stats.total} tasks
+                  </span>
+                )}
               </div>
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
                 <div className="flex -space-x-1.5">
@@ -218,10 +274,11 @@ export default function ProjectsPage() {
                     </div>
                   ))}
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
+                <ChevronRight className={`w-4 h-4 ${allTasksDone ? 'text-emerald-500' : 'text-slate-400'}`} />
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

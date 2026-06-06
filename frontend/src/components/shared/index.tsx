@@ -121,6 +121,68 @@ export function PageHeader({
 
 export { AssigneePicker } from './AssigneePicker';
 
+// ── Project task progress ring ────────────────────────────────
+export function ProjectProgressRing({
+  completed,
+  total,
+  size = 44,
+}: {
+  completed: number;
+  total: number;
+  size?: number;
+}) {
+  const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+  const allDone = total > 0 && completed === total;
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const cx = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (pct / 100) * circumference;
+
+  return (
+    <div
+      className="relative flex-shrink-0"
+      style={{ width: size, height: size }}
+      title={
+        total === 0
+          ? 'No tasks yet'
+          : `${completed} of ${total} tasks completed (${pct}%)`
+      }
+    >
+      <svg width={size} height={size} className="-rotate-90" aria-hidden>
+        <circle
+          cx={cx}
+          cy={cx}
+          r={r}
+          fill="none"
+          strokeWidth={stroke}
+          className="stroke-slate-200 dark:stroke-slate-700"
+        />
+        <circle
+          cx={cx}
+          cy={cx}
+          r={r}
+          fill="none"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className={allDone ? 'stroke-emerald-500' : 'stroke-brand-500'}
+        />
+      </svg>
+      <span
+        className={`absolute inset-0 flex items-center justify-center text-[10px] font-bold leading-none ${
+          allDone
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-slate-600 dark:text-slate-300'
+        }`}
+      >
+        {total === 0 ? '—' : `${pct}%`}
+      </span>
+    </div>
+  );
+}
+
 // ── Avatar ────────────────────────────────────────────────────
 export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
   const s = { sm: 'w-7 h-7 text-xs', md: 'w-9 h-9 text-sm', lg: 'w-12 h-12 text-base' }[size];

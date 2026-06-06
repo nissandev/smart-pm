@@ -6,9 +6,18 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
-const navItems = [
+import type { UserRole } from '../../types';
+
+const navItems: {
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  end?: boolean;
+  /** Omit = all roles. My Work is PM + member only (admin uses Dashboard). */
+  roles?: UserRole[];
+}[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
-  { to: '/my-work', icon: Briefcase, label: 'My Work' },
+  { to: '/my-work', icon: Briefcase, label: 'My Work', roles: ['project_manager', 'member'] },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
   { to: '/team', icon: Users, label: 'Team' },
@@ -86,7 +95,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label, end }) => (
+          {navItems
+            .filter((item) => !item.roles || (user?.role && item.roles.includes(user.role)))
+            .map(({ to, icon: Icon, label, end }) => (
             <NavLink
               key={to}
               to={to}
