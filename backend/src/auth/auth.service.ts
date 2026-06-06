@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { LoginDto } from './dto/login.dto';
+import { UserRole } from '../users/user.schema';
 
 @Injectable()
 export class AuthService {
@@ -11,8 +12,14 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
+  /** Public signup — always creates a Team Member account. */
   async register(dto: CreateUserDto) {
-    const user = await this.usersService.create(dto);
+    const user = await this.usersService.create({
+      name: dto.name,
+      email: dto.email,
+      password: dto.password,
+      role: UserRole.MEMBER,
+    });
     const token = this.signToken(user);
     return { user, token };
   }

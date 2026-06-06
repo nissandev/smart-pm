@@ -3,15 +3,16 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import Layout from './components/layout/Layout';
 import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 import DashboardPage from './pages/DashboardPage';
 import MyWorkRoute from './components/auth/MyWorkRoute';
+import ActivityRoute from './components/auth/ActivityRoute';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import TasksPage from './pages/TasksPage';
 import TaskDetailPage from './pages/TaskDetailPage';
 import TeamPage from './pages/TeamPage';
 import MemberDetailPage from './pages/MemberDetailPage';
-import ActivityPage from './pages/ActivityPage';
 import UsersPage from './pages/UsersPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
@@ -26,6 +27,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={token ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/signup" element={token ? <Navigate to="/" replace /> : <SignupPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
@@ -37,7 +39,7 @@ export default function App() {
           <Route path="tasks/:id" element={<TaskDetailPage />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="team/:id" element={<MemberDetailPage />} />
-          <Route path="activity" element={<ActivityPage />} />
+          <Route path="activity" element={<ActivityRoute />} />
           <Route path="users" element={<UsersPage />} />
         </Route>
       </Route>

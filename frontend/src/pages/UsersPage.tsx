@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Edit2, Search, Shield, User as UserIcon, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import { usersApi, authApi } from '../services';
+import { usersApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, Avatar, ConfirmModal, Spinner,
@@ -255,10 +255,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
     }
     setLoading(true);
     try {
-      const { data } = await authApi.register({ name, email, password, role });
-      if (role !== 'member') {
-        await usersApi.updateRole(data.user._id, role);
-      }
+      await usersApi.create({ name, email, password, role });
       toast.success('User created');
       onSuccess();
     } catch (e: any) {

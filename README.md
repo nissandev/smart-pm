@@ -2,10 +2,22 @@
 
 A full-stack, role-based **project & task management** platform built to the
 *Smart Project Task PRD*. It supports Admin / Project Manager / Team Member
-roles, real-time notifications, file attachments, dashboards with live charts,
+roles, notifications, file attachments, Kanban boards, dashboards with live charts,
 and a clean dark/light UI.
 
 > **Stack:** React + Vite + Tailwind + Recharts • NestJS 10 • MongoDB (Atlas or local) • JWT auth • Docker Compose
+
+---
+
+## Live Demo & Repository
+
+| Resource | URL |
+| -------- | --- |
+| **Live application** | [https://smartpm.nexarift.com](https://smartpm.nexarift.com) |
+| **GitHub repository** | [https://github.com/nissandev/smart-pm](https://github.com/nissandev/smart-pm) |
+| **API health** | [https://smartpm.nexarift.com/api/health](https://smartpm.nexarift.com/api/health) |
+
+Use the **one-click Demo Login** buttons on the login page, or the credentials in [Database Seeding & Demo Credentials](#database-seeding--demo-credentials) below.
 
 ---
 
@@ -30,28 +42,25 @@ and a clean dark/light UI.
 ## Features
 
 ### Core (per PRD)
-- **Authentication** — email/password + JWT, demo-login button, role decoded from token
+- **Authentication** — email/password signup & login, JWT, one-click demo login, role decoded from token
 - **RBAC** — Admin / Project Manager / Team Member with strict per-route enforcement
 - **Projects** — CRUD with unique names, future-deadline validation, cascade delete
-- **Tasks** — CRUD with unique titles per project, priority, status, due-date validation
+- **Tasks** — CRUD with unique titles per project, priority, status, due-date validation, Kanban board
 - **Comments** — member-only, author-only edit, admin-or-author delete
 - **File Attachments** — upload, list, download, remove (multipart, served as static)
 - **Notifications** — bell with unread badge: task assigned, status changed, new comment, due-soon
-- **Activity Log** — every project/task/member event tracked, paginated full view
+- **Activity Log** — every project/task/member event tracked, paginated full view (Admin & PM)
 - **Dashboard** — KPI cards, status donut, priority bar, completion-trend line, productivity, deadlines, workload
-- **Search / Filter / Sort / Paginate** — across projects and tasks (incl. admin-only "Created by" filter)
+- **Search / Filter / Sort / Paginate** — search & filters on projects/tasks; client-side pagination on list views; server-side pagination on Activity log
 - **Dark / Light mode** — persisted in local storage
 
 ### Quality of life
 - Theme-aware Recharts tooltips
 - Toast notifications (success/error)
-- Server-side pagination & filtering
+- Kanban board with drag-and-drop (desktop) and mobile-friendly tabs
 - Full TypeScript on both ends
 
-> **Note:** the seed script only creates the four demo **user accounts**. The
-> first time you log in, the dashboard, projects, and tasks will be empty —
-> create them through the UI to see activity logging, notifications, and
-> charts come alive.
+> **Note:** run the seed script to load demo users **plus** sample projects, tasks, and activity so the dashboard is populated on first login.
 
 ---
 
@@ -93,8 +102,8 @@ path: <https://www.mongodb.com/cloud/atlas/register>.
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-username>/smart-project-tracker.git
-cd smart-project-tracker/smart-pm
+git clone https://github.com/nissandev/smart-pm.git
+cd smart-pm
 ```
 
 ### 2. Create `.env`
@@ -126,7 +135,7 @@ smart-pm-backend   |  Nest application successfully started on port 3001
 smart-pm-frontend  |  VITE v5  ready in 850 ms — Local: http://localhost:3000
 ```
 
-### 4. Seed demo users (one-time)
+### 4. Seed demo data (one-time)
 
 In a **second terminal**:
 
@@ -134,20 +143,23 @@ In a **second terminal**:
 docker exec smart-pm-backend npm run seed
 ```
 
-This only creates the four demo **user accounts** so you can log in. Projects,
-tasks, and activity logs are intentionally left empty — you create those
-through the app to exercise the real flows. Output:
+Creates demo **users**, **3 sample projects**, **7 tasks**, and **5 activity** entries. Output:
 
 ```
 ✅ Connected to MongoDB
-🗑️  Cleared users, projects, tasks, activities, notifications
+🗑️  Cleared existing data
 👤 Users seeded
+📁 Projects seeded
+✅ Tasks seeded
+📋 Activity log seeded
 
 🎉 Seed complete! Demo credentials:
    Admin   → admin@smartpm.dev  / admin123
    PM      → pm@smartpm.dev     / pm123456
    Member  → john@smartpm.dev   / member123
    Member  → jane@smartpm.dev   / member123
+
+Sample data: 3 projects, 7 tasks, 5 activity entries.
 ```
 
 ### 5. Open the app
@@ -155,10 +167,11 @@ through the app to exercise the real flows. Output:
 | URL                                        | What it is                       |
 | ------------------------------------------ | -------------------------------- |
 | <http://localhost:3000>                    | Frontend (React)                 |
+| <http://localhost:3000/signup>             | Public signup (Team Member role) |
 | <http://localhost:3001/api/health>         | Backend health check             |
 | <http://localhost:3001/api>                | REST API base                    |
 
-The login page has a **Demo Login** button pre-filled with admin credentials.
+The login page has **one-click Demo Login** buttons for Admin, PM, and Member.
 
 ---
 
@@ -211,28 +224,10 @@ All variables are documented in [`.env.example`](.env.example). Summary:
 
 ## Database Seeding & Demo Credentials
 
-`backend/src/database/seed.ts` seeds **only the four demo user accounts** so
-evaluators can log in immediately. Projects, tasks, and activity logs are
-**intentionally not seeded** — you create them through the app, which exercises
-the real CRUD flows, validations, and activity logging.
+`backend/src/database/seed.ts` seeds demo **users**, **3 projects**, **7 tasks**,
+and **5 activity** entries so assessors see a populated dashboard immediately.
 
-For consistency, the script also wipes `projects`, `tasks`, `activities`, and
-`notifications` collections so they never reference user IDs that have been
-re-generated.
-
-After seeding, log in with any of:
-
-| Role                | Email                  | Password    |
-| ------------------- | ---------------------- | ----------- |
-| **Admin**           | `admin@smartpm.dev`    | `admin123`  |
-| **Project Manager** | `pm@smartpm.dev`       | `pm123456`  |
-| **Member**          | `john@smartpm.dev`     | `member123` |
-| **Member**          | `jane@smartpm.dev`     | `member123` |
-
-The login screen has a **Quick demo access** panel that fills these credentials
-with one click.
-
-Re-run any time to reset the database to a clean state (4 demo users only):
+Re-run any time to reset the database:
 
 ```bash
 # Docker
@@ -242,16 +237,25 @@ docker exec smart-pm-backend npm run seed
 cd backend && npm run seed
 ```
 
+| Role                | Email                  | Password    |
+| ------------------- | ---------------------- | ----------- |
+| **Admin**           | `admin@smartpm.dev`    | `admin123`  |
+| **Project Manager** | `pm@smartpm.dev`       | `pm123456`  |
+| **Member**          | `john@smartpm.dev`     | `member123` |
+| **Member**          | `jane@smartpm.dev`     | `member123` |
+
+The login screen has **one-click Demo Login** buttons (Admin / PM / Member).
+New users can also **Sign up** at `/signup` (creates a Team Member account).
+
 ### First-run walkthrough
 
-After seeding, log in as **Admin** or **Project Manager** and:
+After seeding, log in as **Admin** via demo login and explore:
 
-1. Create a **project**, set a deadline, add members.
-2. Inside the project, create a few **tasks** with different priorities/statuses.
-3. As a **Member** (e.g. `john@smartpm.dev`), open the assigned tasks and update
-   their status to see notifications and activity log entries appear in real time.
-4. Visit the **Dashboard** — KPI cards, charts, the project-progress trend, and
-   recent activity all populate from the data you just created.
+1. **Dashboard** — KPIs, charts, recent activity, overdue tasks
+2. **Projects** — Website Redesign, Mobile App, Admin Dashboard
+3. **Tasks** — Kanban board with mixed statuses and priorities
+4. **Activity** — recent project/task/member events
+5. As **Member** (`john@smartpm.dev`), open **My Work** for assigned at-risk tasks
 
 ---
 

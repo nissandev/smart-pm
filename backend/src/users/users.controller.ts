@@ -1,6 +1,7 @@
-import { Controller, Get, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
+import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -18,6 +19,13 @@ export class UsersController {
   @Get()
   findAll() {
     return this.usersService.findAll();
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post()
+  async create(@Body() dto: CreateUserDto) {
+    const user = await this.usersService.create(dto);
+    return this.usersService.findById(String(user._id));
   }
 
   @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)

@@ -21,7 +21,7 @@ const navItems: {
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
   { to: '/team', icon: Users, label: 'Team' },
-  { to: '/activity', icon: Activity, label: 'Activity' },
+  { to: '/activity', icon: Activity, label: 'Activity', roles: ['admin', 'project_manager'] },
 ];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

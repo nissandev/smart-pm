@@ -16,6 +16,8 @@ export const authApi = {
 // ── Users ─────────────────────────────────────────────────────
 export const usersApi = {
   getAll: () => api.get<User[]>('/users'),
+  create: (data: { name: string; email: string; password: string; role?: string }) =>
+    api.post<User>('/users', data),
   getById: (id: string) => api.get<User>(`/users/${id}`),
   update: (id: string, data: Partial<User>) => api.patch<User>(`/users/${id}`, data),
   updateRole: (id: string, role: string) => api.patch<User>(`/users/${id}/role`, { role }),

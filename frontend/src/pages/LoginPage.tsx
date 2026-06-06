@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Zap, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../services';
@@ -18,16 +18,21 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState<string | null>(null);
+
+  const performLogin = async (loginEmail: string, loginPassword: string) => {
+    const { data } = await authApi.login(loginEmail, loginPassword);
+    setAuth(data.user, data.token);
+    toast.success(`Welcome back, ${data.user.name}!`);
+    navigate('/');
+  };
 
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!email || !password) { toast.error('Please fill in all fields'); return; }
     setLoading(true);
     try {
-      const { data } = await authApi.login(email, password);
-      setAuth(data.user, data.token);
-      toast.success(`Welcome back, ${data.user.name}!`);
-      navigate('/');
+      await performLogin(email, password);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Invalid credentials');
     } finally {
@@ -35,9 +40,17 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemo = (demo: typeof DEMO_USERS[0]) => {
+  const handleDemoLogin = async (demo: typeof DEMO_USERS[0]) => {
+    setDemoLoading(demo.label);
     setEmail(demo.email);
     setPassword(demo.password);
+    try {
+      await performLogin(demo.email, demo.password);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Demo login failed — run seed first');
+    } finally {
+      setDemoLoading(null);
+    }
   };
 
   return (
@@ -70,7 +83,6 @@ export default function LoginPage() {
       {/* Right panel */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
           <div className="flex items-center gap-2 mb-8 lg:hidden">
             <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
               <Zap className="w-4 h-4 text-white" />
@@ -83,21 +95,24 @@ export default function LoginPage() {
             Welcome back — sign in to your workspace
           </p>
 
-          {/* Demo login buttons */}
+          {/* One-click demo login */}
           <div className="mb-6">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">
-              Quick demo access
+              Demo login — one click
             </p>
             <div className="flex flex-col gap-2">
               {DEMO_USERS.map((demo) => (
                 <button
                   key={demo.label}
                   type="button"
-                  onClick={() => fillDemo(demo)}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-left"
+                  disabled={!!demoLoading || loading}
+                  onClick={() => handleDemoLogin(demo)}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-brand-50 dark:hover:bg-brand-950/30 hover:border-brand-300 dark:hover:border-brand-700 transition-colors text-left disabled:opacity-50"
                 >
                   <span className={`w-2 h-2 rounded-full ${demo.color} flex-shrink-0`} />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{demo.label}</span>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    {demoLoading === demo.label ? `Signing in as ${demo.label}…` : `Demo ${demo.label}`}
+                  </span>
                   <span className="text-xs text-slate-400 ml-auto">{demo.email}</span>
                 </button>
               ))}
@@ -148,7 +163,7 @@ export default function LoginPage() {
             <button
               type="submit"
               className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
-              disabled={loading}
+              disabled={loading || !!demoLoading}
             >
               {loading ? (
                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -159,6 +174,13 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+            Don&apos;t have an account?{' '}
+            <Link to="/signup" className="text-brand-600 dark:text-brand-400 font-medium hover:underline">
+              Sign up
+            </Link>
+          </p>
         </div>
       </div>
     </div>
