@@ -162,6 +162,18 @@ export interface MyWorkStats {
   };
 }
 
+export interface GroupSyncPreview {
+  group: { _id: string; name: string; leadId: User | string };
+  toAdd: Pick<User, '_id' | 'name' | 'email' | 'role'>[];
+  toRemove: User[];
+  leadChange: {
+    wouldChange: boolean;
+    from: Pick<User, '_id' | 'name' | 'email' | 'role'> | null;
+    to: Pick<User, '_id' | 'name' | 'email' | 'role'> | null;
+  };
+  inSync: boolean;
+}
+
 export interface DashboardStats {
   projects: { total: number; active: number; completed: number; onHold: number };
   tasks: { total: number; todo: number; inProgress: number; completed: number; overdue: number; pending: number };

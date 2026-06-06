@@ -8,6 +8,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { AddGroupMembersDto } from './dto/add-group-members.dto';
+import { SyncGroupDto } from './dto/sync-group.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UserDocument } from '../users/user.schema';
@@ -32,6 +33,24 @@ export class ProjectsController {
   @Get('stats')
   getStats(@CurrentUser() user: UserDocument) {
     return this.projectsService.getStats(user);
+  }
+
+  @Get(':id/sync-from-group/preview')
+  getSyncFromGroupPreview(
+    @Param('id') id: string,
+    @Query('teamId') teamId: string | undefined,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.projectsService.getSyncFromGroupPreview(id, user, teamId);
+  }
+
+  @Post(':id/sync-from-group')
+  syncFromGroup(
+    @Param('id') id: string,
+    @Body() dto: SyncGroupDto,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.projectsService.syncFromGroup(id, dto, user);
   }
 
   @Get(':id')

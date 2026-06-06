@@ -10,6 +10,7 @@ import { Model, Types } from 'mongoose';
 import { Project, ProjectDocument, ProjectStatus } from './project.schema';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { SyncGroupDto } from './dto/sync-group.dto';
 import { UserRole, UserDocument } from '../users/user.schema';
 import { ActivityService } from '../activity/activity.service';
 import { ActionType } from '../activity/activity.schema';
@@ -371,6 +372,254 @@ export class ProjectsService {
     }
 
     return saved;
+  }
+
+  async getSyncFromGroupPreview(
+    projectId: string,
+    user: UserDocument,
+    teamId?: string,
+  ) {
+    const project = await this.projectModel
+      .findById(projectId)
+      .populate('createdBy', 'name email role')
+      .populate('leadId', 'name email role')
+      .populate('members', 'name email role');
+    if (!project) throw new NotFoundException('Project not found');
+    this.checkLeadOrAdmin(project, user);
+
+    const resolvedTeamId = teamId ?? project.teamId?.toString();
+    if (!resolvedTeamId) {
+      throw new BadRequestException(
+        'This project has no linked group. Choose a group to sync from.',
+      );
+    }
+
+    const group = await this.loadGroupForProject(resolvedTeamId, user, project);
+    await group.populate([
+      { path: 'leadId', select: 'name email role' },
+      { path: 'memberIds', select: 'name email role' },
+    ]);
+
+    const preview = this.buildGroupSyncPreview(project, group);
+    const toAdd = await Promise.all(
+      preview.toAddIds.map(async (id) => {
+        const u = await this.usersService.findById(id);
+        return { _id: u._id, name: u.name, email: u.email, role: u.role };
+      }),
+    );
+
+    const { toAddIds, ...rest } = preview;
+    return { ...rest, toAdd };
+  }
+
+  async syncFromGroup(
+    projectId: string,
+    dto: SyncGroupDto,
+    user: UserDocument,
+  ): Promise<ProjectDocument> {
+    const project = await this.projectModel.findById(projectId);
+    if (!project) throw new NotFoundException('Project not found');
+    this.checkLeadOrAdmin(project, user);
+
+    const resolvedTeamId = dto.teamId ?? project.teamId?.toString();
+    if (!resolvedTeamId) {
+      throw new BadRequestException(
+        'This project has no linked group. Choose a group to sync from.',
+      );
+    }
+
+    const group = await this.loadGroupForProject(resolvedTeamId, user, project);
+    const preview = this.buildGroupSyncPreview(project, group);
+
+    const removeAbsent = dto.removeAbsent ?? false;
+    const updateLead = dto.updateLead ?? false;
+
+    if (
+      preview.toAddIds.length === 0 &&
+      (!removeAbsent || preview.toRemove.length === 0) &&
+      (!updateLead || !preview.leadChange.wouldChange)
+    ) {
+      throw new BadRequestException('Project is already in sync with this group');
+    }
+
+    const ownerId = project.createdBy.toString();
+    const addedIds: string[] = [];
+    const removedIds: string[] = [];
+
+    for (const id of preview.toAddIds) {
+      const memberUser = await this.usersService.findById(id);
+      if (!memberUser.isActive) {
+        throw new BadRequestException(`Cannot add inactive user: ${memberUser.email}`);
+      }
+      project.members.push(new Types.ObjectId(id));
+      addedIds.push(id);
+    }
+
+    if (removeAbsent) {
+      for (const id of preview.toRemove.map((u: any) => u._id.toString())) {
+        if (id === ownerId) continue;
+        project.members = project.members.filter((m) => m.toString() !== id);
+        if (project.leadId?.toString() === id) {
+          project.leadId = undefined;
+        }
+        removedIds.push(id);
+      }
+    }
+
+    project.teamId = group._id as Types.ObjectId;
+
+    const groupLeadId = group.leadId.toString();
+    if (updateLead && preview.leadChange.wouldChange) {
+      const leadUser = await this.usersService.findById(groupLeadId);
+      if (leadUser.role !== UserRole.PROJECT_MANAGER) {
+        throw new BadRequestException('Group lead must be a Project Manager');
+      }
+      project.leadId = new Types.ObjectId(groupLeadId);
+      if (!project.members.some((m) => m.toString() === groupLeadId)) {
+        project.members.push(new Types.ObjectId(groupLeadId));
+        if (!addedIds.includes(groupLeadId)) addedIds.push(groupLeadId);
+      }
+    }
+
+    const saved = await project.save();
+    await saved.populate([
+      { path: 'createdBy', select: 'name email role' },
+      { path: 'leadId', select: 'name email role' },
+      { path: 'members', select: 'name email role' },
+      { path: 'teamId', select: 'name leadId', populate: { path: 'leadId', select: 'name email' } },
+    ]);
+
+    const parts: string[] = [];
+    if (addedIds.length) parts.push(`+${addedIds.length} added`);
+    if (removedIds.length) parts.push(`-${removedIds.length} removed`);
+    if (updateLead && preview.leadChange.wouldChange) parts.push('lead updated');
+
+    await this.activityService.log({
+      actor: (user as any)._id,
+      actionType: ActionType.PROJECT_UPDATED,
+      entityType: 'project',
+      entityId: project._id,
+      description: `Group "${group.name}" synced to "${project.name}" (${parts.join(', ') || 'linked'})`,
+      project: project._id,
+    });
+
+    for (const memberId of addedIds) {
+      await this.notifications.create({
+        recipient: new Types.ObjectId(memberId),
+        actor: (user as any)._id,
+        type: NotificationType.MEMBER_ADDED,
+        title: 'You were added to a project',
+        message: `"${project.name}"`,
+        project: project._id,
+      });
+    }
+
+    if (updateLead && preview.leadChange.wouldChange) {
+      await this.activityService.log({
+        actor: (user as any)._id,
+        actionType: ActionType.PROJECT_LEAD_ASSIGNED,
+        entityType: 'project',
+        entityId: project._id,
+        description: `${preview.leadChange.to?.name ?? 'PM'} is now the lead of "${project.name}" (group sync)`,
+        project: project._id,
+      });
+      await this.notifications.create({
+        recipient: new Types.ObjectId(groupLeadId),
+        actor: (user as any)._id,
+        type: NotificationType.MEMBER_ADDED,
+        title: 'You are now the lead of a project',
+        message: `"${project.name}"`,
+        project: project._id,
+      });
+    }
+
+    return saved;
+  }
+
+  private async loadGroupForProject(
+    teamId: string,
+    user: UserDocument,
+    project?: ProjectDocument,
+  ) {
+    if (user.role === UserRole.ADMIN) {
+      return this.groupsService.findByIdForProject(teamId);
+    }
+    try {
+      return await this.groupsService.findById(teamId, user);
+    } catch {
+      const userId = (user as any)._id.toString();
+      const isLinkedGroup = project?.teamId?.toString() === teamId;
+      if (
+        user.role === UserRole.PROJECT_MANAGER &&
+        project &&
+        isLinkedGroup &&
+        isProjectLead(project, userId)
+      ) {
+        return this.groupsService.findByIdForProject(teamId);
+      }
+      throw new ForbiddenException('You can only sync groups you lead or groups linked to your project');
+    }
+  }
+
+  private getGroupRosterIds(group: { leadId: any; memberIds: any[] }): Set<string> {
+    const ids = new Set<string>();
+    const leadId = group.leadId?._id?.toString() ?? group.leadId?.toString();
+    if (leadId) ids.add(leadId);
+    for (const m of group.memberIds || []) {
+      const id = m._id?.toString() ?? m.toString();
+      if (id) ids.add(id);
+    }
+    return ids;
+  }
+
+  private buildGroupSyncPreview(project: ProjectDocument, group: any) {
+    const rosterIds = this.getGroupRosterIds(group);
+    const ownerId = project.createdBy.toString();
+    const onProject = new Map<string, any>(
+      (project.members as any[]).map((m) => [m._id.toString(), m]),
+    );
+
+    const toAddIds = [...rosterIds].filter((id) => !onProject.has(id));
+    const toRemove = [...onProject.values()].filter((m) => {
+      const id = m._id.toString();
+      if (id === ownerId) return false;
+      if (rosterIds.has(id)) return false;
+      if (m.role === UserRole.ADMIN) return false;
+      return true;
+    });
+
+    const groupLead = group.leadId;
+    const groupLeadId = groupLead?._id?.toString() ?? group.leadId?.toString();
+    const currentLead = project.leadId as any;
+    const currentLeadId = currentLead?._id?.toString() ?? project.leadId?.toString();
+    const wouldChangeLead = !!groupLeadId && groupLeadId !== currentLeadId;
+
+    return {
+      group: {
+        _id: group._id,
+        name: group.name,
+        leadId: groupLead,
+      },
+      toAddIds,
+      toRemove,
+      leadChange: {
+        wouldChange: wouldChangeLead,
+        from: currentLead && typeof currentLead === 'object'
+          ? { _id: currentLead._id, name: currentLead.name, email: currentLead.email, role: currentLead.role }
+          : currentLeadId
+            ? { _id: currentLeadId, name: 'Current lead' }
+            : null,
+        to: groupLead && typeof groupLead === 'object'
+          ? { _id: groupLead._id, name: groupLead.name, email: groupLead.email, role: groupLead.role }
+          : groupLeadId
+            ? { _id: groupLeadId, name: 'Group PM' }
+            : null,
+      },
+      inSync:
+        toAddIds.length === 0 &&
+        toRemove.length === 0 &&
+        !wouldChangeLead,
+    };
   }
 
   /**

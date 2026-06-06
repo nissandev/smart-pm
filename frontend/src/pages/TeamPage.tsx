@@ -61,6 +61,7 @@ export default function TeamPage() {
     mutationFn: (data: CreateGroupInput) => groupsApi.create(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['groups'] });
+      qc.invalidateQueries({ queryKey: ['sync-preview'] });
       setShowCreateGroup(false);
       toast.success('Group created');
     },
@@ -72,6 +73,7 @@ export default function TeamPage() {
       groupsApi.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['groups'] });
+      qc.invalidateQueries({ queryKey: ['sync-preview'] });
       setEditingGroup(null);
       toast.success('Group updated');
     },
@@ -82,6 +84,7 @@ export default function TeamPage() {
     mutationFn: (id: string) => groupsApi.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['groups'] });
+      qc.invalidateQueries({ queryKey: ['sync-preview'] });
       setDeletingGroup(null);
       toast.success('Group deleted');
     },

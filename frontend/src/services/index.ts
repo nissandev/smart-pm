@@ -1,6 +1,6 @@
 import api from './api';
 import type {
-  Project, Task, User, TeamGroup, DashboardStats, MyWorkStats, Paginated, Activity,
+  Project, Task, User, TeamGroup, DashboardStats, MyWorkStats, GroupSyncPreview, Paginated, Activity,
   NotificationListResponse,
 } from '../types';
 
@@ -67,6 +67,14 @@ export const projectsApi = {
       teamId,
       makeLead: options?.makeLead ?? options?.makeOwner ?? false,
     }),
+  getSyncFromGroupPreview: (projectId: string, teamId?: string) =>
+    api.get<GroupSyncPreview>(`/projects/${projectId}/sync-from-group/preview`, {
+      params: teamId ? { teamId } : {},
+    }),
+  syncFromGroup: (
+    projectId: string,
+    data: { teamId?: string; removeAbsent?: boolean; updateLead?: boolean },
+  ) => api.post<Project>(`/projects/${projectId}/sync-from-group`, data),
   removeMember: (projectId: string, memberId: string) =>
     api.delete<Project>(`/projects/${projectId}/members/${memberId}`),
 };

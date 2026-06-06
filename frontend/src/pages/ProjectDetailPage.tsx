@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Plus, Trash2, UserMinus, Calendar, Edit2,
-  Search, Clock, Users,
+  Search, Clock, Users, RefreshCw, UserPlus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, formatDistanceToNow } from 'date-fns';
@@ -30,6 +30,7 @@ export default function ProjectDetailPage() {
   const [showEditProject, setShowEditProject] = useState(false);
   const [showDeleteProject, setShowDeleteProject] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [showSyncGroup, setShowSyncGroup] = useState(false);
   const [removingMember, setRemovingMember] = useState<User | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -58,8 +59,32 @@ export default function ProjectDetailPage() {
   const { data: groups = [] } = useQuery({
     queryKey: ['groups'],
     queryFn: () => groupsApi.getAll().then((r) => r.data),
-    enabled: isAdminOrPM,
+    enabled: isAdminOrPM && !!id,
   });
+
+  const linkedTeamIdEarly = project?.teamId
+    ? typeof project.teamId === 'object'
+      ? (project.teamId as TeamGroup)._id
+      : String(project.teamId)
+    : undefined;
+  const canManageEarly = project ? canManageProject(project, me) : me?.role === 'admin';
+
+  const { data: syncPreview } = useQuery({
+    queryKey: ['sync-preview', id, linkedTeamIdEarly],
+    queryFn: () =>
+      projectsApi.getSyncFromGroupPreview(id!, linkedTeamIdEarly).then((r) => r.data),
+    enabled: !!id && !!linkedTeamIdEarly && canManageEarly,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const syncPendingCount = syncPreview
+    ? syncPreview.toAdd.length +
+      syncPreview.toRemove.length +
+      (syncPreview.leadChange.wouldChange ? 1 : 0)
+    : 0;
+  /** Any drift between linked group roster and project membership. */
+  const syncAvailable = !!syncPreview && !syncPreview.inSync;
 
   const { data: recentActivity = [] } = useQuery({
     queryKey: ['activity', 'project', id],
@@ -107,6 +132,7 @@ export default function ProjectDetailPage() {
     mutationFn: (memberId: string) => projectsApi.removeMember(id!, memberId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project', id] });
+      qc.invalidateQueries({ queryKey: ['sync-preview', id] });
       qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
       setRemovingMember(null);
       toast.success('Member removed');
@@ -155,6 +181,27 @@ export default function ProjectDetailPage() {
   const members = project.members as User[];
   const projectOwnerId = getProjectOwnerId(project);
   const projectLeadId = getProjectLeadId(project);
+  const linkedTeamId = project.teamId
+    ? typeof project.teamId === 'object'
+      ? (project.teamId as TeamGroup)._id
+      : String(project.teamId)
+    : undefined;
+  const linkedTeamName =
+    project.teamId && typeof project.teamId === 'object'
+      ? (project.teamId as TeamGroup).name
+      : undefined;
+  /** Show sync when project has a linked team OR user can pick from groups list. */
+  const showSyncButton = canManage && (!!linkedTeamId || groups.length > 0);
+  const groupsForSync = (() => {
+    const list = [...groups];
+    if (project.teamId && typeof project.teamId === 'object') {
+      const tid = (project.teamId as TeamGroup)._id;
+      if (!list.some((g) => g._id === tid)) {
+        list.unshift(project.teamId as TeamGroup);
+      }
+    }
+    return list;
+  })();
   const tasksByStatus = {
     todo: tasks.filter((t) => t.status === 'Todo').length,
     inProgress: tasks.filter((t) => t.status === 'In Progress').length,
@@ -237,9 +284,28 @@ export default function ProjectDetailPage() {
               Lead: {(project.leadId as User).name}
             </span>
           )}
-          {project.teamId && typeof project.teamId === 'object' && (
-            <span className="text-slate-400">
-              Team: {(project.teamId as TeamGroup).name}
+          {linkedTeamName && (
+            <span className="text-slate-400 flex items-center gap-2 flex-wrap">
+              Team: {linkedTeamName}
+              {showSyncButton && (
+                <button
+                  type="button"
+                  className={`relative inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg transition-colors ${
+                    syncAvailable
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm'
+                      : 'bg-brand-100 hover:bg-brand-200 dark:bg-brand-950/50 dark:hover:bg-brand-900/40 text-brand-700 dark:text-brand-300'
+                  }`}
+                  onClick={() => setShowSyncGroup(true)}
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncAvailable ? 'animate-pulse' : ''}`} />
+                  Sync
+                  {syncAvailable && (
+                    <span className="min-w-[16px] h-4 px-1 rounded-full bg-white text-amber-600 text-[10px] font-bold leading-none flex items-center justify-center">
+                      {syncPendingCount}
+                    </span>
+                  )}
+                </button>
+              )}
             </span>
           )}
         </div>
@@ -452,10 +518,25 @@ export default function ProjectDetailPage() {
                 <Users className="w-4 h-4" />
                 Members
                 <span className="text-slate-400 font-normal">{members.length}</span>
+                {syncAvailable && (
+                  <span
+                    className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"
+                    title="Team group has updates to sync"
+                  />
+                )}
               </h2>
-              {canManage && (
+              {showSyncButton && (
+                <MemberActionButtons
+                  syncAvailable={syncAvailable}
+                  syncPendingCount={syncPendingCount}
+                  onSync={() => setShowSyncGroup(true)}
+                  onAdd={() => setShowAddMember(true)}
+                />
+              )}
+              {canManage && !showSyncButton && (
                 <button
-                  className="btn-secondary text-xs py-1.5 flex items-center gap-1"
+                  type="button"
+                  className="text-xs py-1.5 px-3 rounded-lg font-medium inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white shadow-sm transition-colors flex-shrink-0"
                   onClick={() => setShowAddMember(true)}
                 >
                   <Plus className="w-3.5 h-3.5" /> Add
@@ -553,6 +634,22 @@ export default function ProjectDetailPage() {
         />
       )}
 
+      {showSyncGroup && (
+        <SyncGroupModal
+          projectId={id!}
+          projectTeamId={linkedTeamId}
+          linkedTeamName={linkedTeamName}
+          groups={groupsForSync}
+          onClose={() => setShowSyncGroup(false)}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ['project', id] });
+            qc.invalidateQueries({ queryKey: ['sync-preview', id] });
+            qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
+            setShowSyncGroup(false);
+          }}
+        />
+      )}
+
       {showAddMember && (
         <AddMemberModal
           projectId={id!}
@@ -563,6 +660,7 @@ export default function ProjectDetailPage() {
           onClose={() => setShowAddMember(false)}
           onSuccess={() => {
             qc.invalidateQueries({ queryKey: ['project', id] });
+            qc.invalidateQueries({ queryKey: ['sync-preview', id] });
             qc.invalidateQueries({ queryKey: ['activity', 'project', id] });
             setShowAddMember(false);
           }}
@@ -1117,6 +1215,247 @@ function AddMemberModal({
               {loading ? 'Adding…' : mode === 'group' ? 'Add Group' : 'Add Member'}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Member action buttons (Sync + Add) ───────────────────────────
+function MemberActionButtons({
+  syncAvailable,
+  syncPendingCount,
+  onSync,
+  onAdd,
+}: {
+  syncAvailable: boolean;
+  syncPendingCount: number;
+  onSync: () => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-shrink-0">
+      <button
+        type="button"
+        onClick={onSync}
+        title={
+          syncAvailable
+            ? `${syncPendingCount} difference${syncPendingCount !== 1 ? 's' : ''} between project and team group — click to sync`
+            : 'Project matches the team group'
+        }
+        className={`relative text-xs py-1.5 px-3 rounded-lg font-medium inline-flex items-center gap-1.5 transition-colors ${
+          syncAvailable
+            ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm ring-2 ring-amber-200/80 dark:ring-amber-800/60'
+            : 'bg-brand-100 hover:bg-brand-200 dark:bg-brand-950/50 dark:hover:bg-brand-900/40 text-brand-700 dark:text-brand-300'
+        }`}
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${syncAvailable ? 'animate-pulse' : ''}`} />
+        Sync
+        {syncAvailable && (
+          <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-white text-amber-600 text-[10px] font-bold flex items-center justify-center leading-none">
+            {syncPendingCount}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={onAdd}
+        className="text-xs py-1.5 px-3 rounded-lg font-medium inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white shadow-sm transition-colors"
+      >
+        <Plus className="w-3.5 h-3.5" /> Add
+      </button>
+    </div>
+  );
+}
+
+// ── SyncGroupModal ────────────────────────────────────────────────
+function SyncGroupModal({
+  projectId,
+  projectTeamId,
+  linkedTeamName,
+  groups,
+  onClose,
+  onSuccess,
+}: {
+  projectId: string;
+  projectTeamId?: string;
+  linkedTeamName?: string;
+  groups: TeamGroup[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [teamId, setTeamId] = useState(projectTeamId ?? groups[0]?._id ?? '');
+  const [removeAbsent, setRemoveAbsent] = useState(false);
+  const [updateLead, setUpdateLead] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const { data: preview, isLoading, isFetching } = useQuery({
+    queryKey: ['sync-preview', projectId, teamId],
+    queryFn: () => projectsApi.getSyncFromGroupPreview(projectId, teamId).then((r) => r.data),
+    enabled: !!teamId,
+  });
+
+  useEffect(() => {
+    if (preview?.leadChange.wouldChange) {
+      setUpdateLead(true);
+    } else {
+      setUpdateLead(false);
+    }
+  }, [preview?.leadChange.wouldChange, teamId]);
+
+  const canApply = !!preview && (
+    preview.toAdd.length > 0 ||
+    (removeAbsent && preview.toRemove.length > 0) ||
+    (updateLead && preview.leadChange.wouldChange)
+  );
+
+  const handleSync = async () => {
+    if (!teamId) {
+      toast.error('Select a group');
+      return;
+    }
+    setLoading(true);
+    try {
+      await projectsApi.syncFromGroup(projectId, { teamId, removeAbsent, updateLead });
+      toast.success('Group synced to project');
+      onSuccess();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to sync group');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="card max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+          Sync from group
+        </h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+          Update this project&apos;s members to match the current group roster. Admin owner is never removed.
+        </p>
+
+        <div className="mb-4">
+          <label className="label">Team group</label>
+          {projectTeamId && linkedTeamName ? (
+            <p className="input w-full bg-slate-50 dark:bg-slate-800/50 text-sm text-slate-700 dark:text-slate-300">
+              {linkedTeamName}
+            </p>
+          ) : (
+            <select
+              className="input w-full"
+              value={teamId}
+              onChange={(e) => setTeamId(e.target.value)}
+            >
+              <option value="">Select a group…</option>
+              {groups.map((g) => (
+                <option key={g._id} value={g._id}>{g.name}</option>
+              ))}
+            </select>
+          )}
+          {projectTeamId && (
+            <p className="text-xs text-slate-400 mt-1">
+              Linked team for this project — new group members can be pulled in here.
+            </p>
+          )}
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Spinner /></div>
+        ) : !teamId ? (
+          <p className="text-sm text-slate-400 text-center py-4">Select a group to preview changes</p>
+        ) : preview ? (
+          <div className="space-y-4">
+            {preview.inSync && !preview.leadChange.wouldChange ? (
+              <p className="text-sm text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-3 py-2">
+                Members match this group. No additions needed.
+              </p>
+            ) : (
+              <>
+                {preview.toAdd.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1">
+                      <UserPlus className="w-3.5 h-3.5 text-emerald-500" />
+                      Will be added ({preview.toAdd.length})
+                    </p>
+                    <ul className="space-y-1.5">
+                      {preview.toAdd.map((u) => (
+                        <li key={u._id} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                          <Avatar name={u.name} size="sm" />
+                          <span className="truncate">{u.name}</span>
+                          <span className="text-xs text-slate-400 capitalize">{u.role.replace('_', ' ')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {preview.toRemove.length > 0 && (
+                  <div>
+                    <label className="flex items-start gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 rounded border-slate-300"
+                        checked={removeAbsent}
+                        onChange={(e) => setRemoveAbsent(e.target.checked)}
+                      />
+                      <span className="text-sm text-slate-700 dark:text-slate-300">
+                        Remove members no longer in the group ({preview.toRemove.length})
+                      </span>
+                    </label>
+                    {removeAbsent && (
+                      <ul className="space-y-1.5 ml-6">
+                        {preview.toRemove.map((u) => (
+                          <li key={u._id} className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                            <UserMinus className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{u.name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {preview.leadChange.wouldChange && preview.leadChange.to && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 rounded border-slate-300"
+                  checked={updateLead}
+                  onChange={(e) => setUpdateLead(e.target.checked)}
+                />
+                <span className="text-sm text-slate-700 dark:text-slate-300">
+                  Set project lead to{' '}
+                  <strong>{preview.leadChange.to.name}</strong>
+                  {preview.leadChange.from && (
+                    <> (currently {preview.leadChange.from.name})</>
+                  )}
+                </span>
+              </label>
+            )}
+          </div>
+        ) : null}
+
+        {isFetching && !isLoading && (
+          <p className="text-xs text-slate-400 text-center mt-2">Updating preview…</p>
+        )}
+
+        <div className="flex gap-3 justify-end mt-6">
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={loading}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary flex items-center gap-2"
+            onClick={handleSync}
+            disabled={loading || !canApply}
+          >
+            {loading && <Spinner size="sm" />}
+            {loading ? 'Syncing…' : 'Apply sync'}
+          </button>
         </div>
       </div>
     </div>
