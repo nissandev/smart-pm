@@ -1,0 +1,3 @@
+project,title,description,assignedToEmail,dueDate,priority,status
+Mobile App,Setup API,Configure REST endpoints,john@smartpm.dev,2026-06-14,High,Todo
+Admin Dashboard,Homepage Design,Hero section mockups,jane@smartpm.dev,2026-06-21,Medium,In Progress

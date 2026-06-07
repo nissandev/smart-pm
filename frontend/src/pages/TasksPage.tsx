@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Edit2, ChevronRight, Calendar,
-  Search, ArrowUpDown, ChevronLeft, LayoutGrid, List,
+  Search, ArrowUpDown, ChevronLeft, LayoutGrid, List, Upload,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, isWithinInterval, addDays, startOfDay } from 'date-fns';
@@ -18,6 +18,7 @@ import { canChangeTaskStatus, getTaskEditMode } from '../utils/taskPermissions';
 import { invalidateTaskQueries } from '../utils/invalidateTaskQueries';
 import { getTaskAssigneePool } from '../utils/taskAssignees';
 import { TaskKanbanBoard } from '../components/tasks/TaskKanbanBoard';
+import { BulkTaskImportModal } from '../components/tasks/BulkTaskImportModal';
 
 const PRIORITY_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 const PAGE_SIZE = 10;
@@ -44,6 +45,7 @@ export default function TasksPage() {
 
   // ── Modal state ────────────────────────────────────────────────
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [deleting, setDeleting] = useState<Task | null>(null);
 
@@ -191,12 +193,21 @@ export default function TasksPage() {
         subtitle={`${filtered.length} task${filtered.length !== 1 ? 's' : ''}`}
         action={
           canManage ? (
-            <button
-              className="btn-primary flex items-center gap-2"
-              onClick={() => setShowCreate(true)}
-            >
-              <Plus className="w-4 h-4" /> New Task
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                className="btn-secondary flex items-center gap-2 text-sm"
+                onClick={() => setShowBulkImport(true)}
+              >
+                <Upload className="w-4 h-4" /> Bulk import
+              </button>
+              <button
+                className="btn-primary flex items-center gap-2"
+                onClick={() => setShowCreate(true)}
+              >
+                <Plus className="w-4 h-4" /> New Task
+              </button>
+            </div>
           ) : undefined
         }
       />
@@ -455,6 +466,13 @@ export default function TasksPage() {
           onConfirm={() => deleteMutation.mutate(deleting._id)}
           onCancel={() => setDeleting(null)}
           loading={deleteMutation.isPending}
+        />
+      )}
+
+      {showBulkImport && (
+        <BulkTaskImportModal
+          onClose={() => setShowBulkImport(false)}
+          onSuccess={() => invalidateTaskQueries(qc)}
         />
       )}
     </div>

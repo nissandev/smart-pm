@@ -13,6 +13,7 @@ import {
   LoadingScreen, PageHeader, EmptyState, ProjectStatusBadge, ConfirmModal,
   ProjectProgressRing,
 } from '../components/shared';
+import { CopyProjectIdButton } from '../components/projects/CopyProjectIdButton';
 import type { Project, User, TeamGroup, Task } from '../types';
 
 const PAGE_SIZE = 12;
@@ -237,6 +238,7 @@ export default function ProjectsPage() {
                   <ProjectProgressRing completed={stats.completed} total={stats.total} />
                   {canCreate && (
                     <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                      <CopyProjectIdButton projectId={project._id} />
                       <button className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-colors" onClick={() => setEditing(project)}>
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>

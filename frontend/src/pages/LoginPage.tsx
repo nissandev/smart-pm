@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Zap, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '../services';
 import { useAuthStore } from '../store/authStore';
+import AuthHeroPanel, { AuthMobileHeroStrip } from '../components/auth/AuthHeroPanel';
 
 const DEMO_USERS = [
-  { label: 'Admin', email: 'admin@smartpm.dev', password: 'admin123', color: 'bg-purple-500' },
-  { label: 'Project Manager', email: 'pm@smartpm.dev', password: 'pm123456', color: 'bg-blue-500' },
-  { label: 'Member', email: 'john@smartpm.dev', password: 'member123', color: 'bg-emerald-500' },
+  { label: 'Admin', email: 'admin@smartpm.dev', password: 'admin123', color: 'bg-purple-500', ring: 'ring-purple-500/30' },
+  { label: 'Project Manager', email: 'pm@smartpm.dev', password: 'pm123456', color: 'bg-blue-500', ring: 'ring-blue-500/30' },
+  { label: 'Member', email: 'john@smartpm.dev', password: 'member123', color: 'bg-emerald-500', ring: 'ring-emerald-500/30' },
 ];
 
 export default function LoginPage() {
@@ -54,133 +55,118 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-[#0f0f17]">
-      {/* Left panel */}
-      <div className="hidden lg:flex lg:w-1/2 bg-brand-600 flex-col justify-between p-12">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl font-bold text-white">SmartPM</span>
-        </div>
-        <div>
-          <h2 className="text-4xl font-bold text-white mb-4 leading-tight">
-            Your projects,<br />perfectly organized.
-          </h2>
-          <p className="text-brand-200 text-lg">
-            Collaborate, track tasks, and ship faster with your team.
-          </p>
-        </div>
-        <div className="flex gap-4">
-          {['24 Projects', '148 Tasks', '4 Team Members'].map((s) => (
-            <div key={s} className="bg-white/10 rounded-xl px-4 py-3">
-              <p className="text-white font-semibold text-sm">{s}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+    <div className="min-h-screen flex bg-slate-100 dark:bg-[#0a0a12]">
+      <AuthHeroPanel variant="login" />
 
-      {/* Right panel */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md">
-          <div className="flex items-center gap-2 mb-8 lg:hidden">
-            <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-xl font-bold text-slate-900 dark:text-white">SmartPM</span>
-          </div>
+      <div className="flex-1 flex flex-col min-h-screen">
+        <AuthMobileHeroStrip />
 
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Sign in</h1>
-          <p className="text-slate-500 dark:text-slate-400 mb-8 text-sm">
-            Welcome back — sign in to your workspace
-          </p>
-
-          {/* One-click demo login */}
-          <div className="mb-6">
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">
-              Demo login — one click
-            </p>
-            <div className="flex flex-col gap-2">
-              {DEMO_USERS.map((demo) => (
-                <button
-                  key={demo.label}
-                  type="button"
-                  disabled={!!demoLoading || loading}
-                  onClick={() => handleDemoLogin(demo)}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-brand-50 dark:hover:bg-brand-950/30 hover:border-brand-300 dark:hover:border-brand-700 transition-colors text-left disabled:opacity-50"
-                >
-                  <span className={`w-2 h-2 rounded-full ${demo.color} flex-shrink-0`} />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {demoLoading === demo.label ? `Signing in as ${demo.label}…` : `Demo ${demo.label}`}
-                  </span>
-                  <span className="text-xs text-slate-400 ml-auto">{demo.email}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200 dark:border-slate-700" />
-            </div>
-            <div className="relative flex justify-center text-xs text-slate-400 bg-slate-50 dark:bg-[#0f0f17] px-3">
-              or sign in manually
-            </div>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="label">Email</label>
-              <input
-                type="email"
-                className="input"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </div>
-            <div>
-              <label className="label">Password</label>
-              <div className="relative">
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  className="input pr-10"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  onClick={() => setShowPass(!showPass)}
-                >
-                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+        <div className="flex-1 flex items-center justify-center p-6 sm:p-10">
+          <div className="w-full max-w-[420px]">
+            <div className="card p-8 sm:p-9 shadow-xl shadow-slate-200/50 dark:shadow-black/30 border-slate-200/80 dark:border-slate-700/50">
+              <div className="mb-8">
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+                  Welcome back
+                </h1>
+                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1.5">
+                  Sign in to manage projects and tasks
+                </p>
               </div>
-            </div>
-            <button
-              type="submit"
-              className="btn-primary w-full py-2.5 flex items-center justify-center gap-2"
-              disabled={loading || !!demoLoading}
-            >
-              {loading ? (
-                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                </svg>
-              ) : null}
-              {loading ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
 
-          <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-            Don&apos;t have an account?{' '}
-            <Link to="/signup" className="text-brand-600 dark:text-brand-400 font-medium hover:underline">
-              Sign up
-            </Link>
-          </p>
+              <div className="mb-6">
+                <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-3 uppercase tracking-widest">
+                  One-click demo
+                </p>
+                <div className="grid gap-2">
+                  {DEMO_USERS.map((demo) => (
+                    <button
+                      key={demo.label}
+                      type="button"
+                      disabled={!!demoLoading || loading}
+                      onClick={() => handleDemoLogin(demo)}
+                      className={`group flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 hover:border-brand-300 dark:hover:border-brand-600 hover:bg-brand-50/80 dark:hover:bg-brand-950/40 transition-all text-left disabled:opacity-50 ring-0 hover:ring-2 ${demo.ring}`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full ${demo.color} flex-shrink-0 shadow-sm`} />
+                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex-1">
+                        {demoLoading === demo.label ? `Signing in…` : demo.label}
+                      </span>
+                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative mb-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200 dark:border-slate-700" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="bg-white dark:bg-[#16162b] px-3 text-xs text-slate-400">
+                    or continue with email
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="label">Email</label>
+                  <input
+                    type="email"
+                    className="input bg-white dark:bg-slate-900/50"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                  />
+                </div>
+                <div>
+                  <label className="label">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPass ? 'text' : 'password'}
+                      className="input pr-10 bg-white dark:bg-slate-900/50"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                      onClick={() => setShowPass(!showPass)}
+                      aria-label={showPass ? 'Hide password' : 'Show password'}
+                    >
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="btn-primary w-full py-3 mt-1 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg shadow-brand-600/25"
+                  disabled={loading || !!demoLoading}
+                >
+                  {loading && (
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                  )}
+                  {loading ? 'Signing in…' : 'Sign in'}
+                </button>
+              </form>
+
+              <p className="mt-7 text-center text-sm text-slate-500 dark:text-slate-400">
+                Don&apos;t have an account?{' '}
+                <Link to="/signup" className="text-brand-600 dark:text-brand-400 font-semibold hover:underline">
+                  Create account
+                </Link>
+              </p>
+            </div>
+
+            <p className="text-center text-[11px] text-slate-400 dark:text-slate-600 mt-6">
+              SmartPM · Project tracking · Task boards · Team analytics
+            </p>
+          </div>
         </div>
       </div>
     </div>

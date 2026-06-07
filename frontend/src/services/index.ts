@@ -117,6 +117,19 @@ export const tasksApi = {
   },
   deleteAttachment: (id: string, idx: number) =>
     api.delete<Task>(`/tasks/${id}/attachments/${idx}`),
+  downloadImportTemplate: () =>
+    api.get<Blob>('/tasks/import/template', { responseType: 'blob' }).then((r) => r.data),
+  bulkImport: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<{
+      created: number;
+      failed: number;
+      results: { row: number; title: string; success: boolean; error?: string }[];
+    }>('/tasks/import/bulk', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 // ── Activity ──────────────────────────────────────────────────

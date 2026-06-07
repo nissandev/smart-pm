@@ -20,6 +20,7 @@ import { getTaskAssigneePool } from '../utils/taskAssignees';
 import {
   canManageProject, canRemoveProjectMember, getProjectLeadId, getProjectOwnerId,
 } from '../utils/projectPermissions';
+import { CopyProjectIdButton } from '../components/projects/CopyProjectIdButton';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -244,8 +245,10 @@ export default function ProjectDetailPage() {
               </p>
             )}
           </div>
-          {canManage && (
+          {isAdminOrPM && (
             <div className="flex items-center gap-1 flex-shrink-0">
+              <CopyProjectIdButton projectId={project._id} size="md" />
+              {canManage && (
               <button
                 className="p-2 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-colors"
                 onClick={() => setShowEditProject(true)}
@@ -253,6 +256,8 @@ export default function ProjectDetailPage() {
               >
                 <Edit2 className="w-4 h-4" />
               </button>
+              )}
+              {canManage && (
               <button
                 className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                 onClick={() => setShowDeleteProject(true)}
@@ -260,6 +265,7 @@ export default function ProjectDetailPage() {
               >
                 <Trash2 className="w-4 h-4" />
               </button>
+              )}
             </div>
           )}
         </div>

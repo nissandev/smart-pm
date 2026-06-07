@@ -7,9 +7,10 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Task, TaskDocument, TaskStatus } from './task.schema';
+import { Task, TaskDocument, TaskStatus, TaskPriority } from './task.schema';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { parseCsv, TASK_CSV_HEADERS, rowToCsv } from './task-csv.util';
 import { UserRole, UserDocument } from '../users/user.schema';
 import { ProjectsService } from '../projects/projects.service';
 import { getProjectLeadId } from '../projects/project-lead.util';
@@ -487,5 +488,216 @@ export class TasksService {
         (t) => t.status !== TaskStatus.COMPLETED && new Date(t.dueDate) < now,
       ).length,
     };
+  }
+
+  /** CSV template with example rows matching import format. */
+  async buildImportTemplate(user: UserDocument): Promise<string> {
+    const projects = await this.projectsService.findAll(user);
+    const p1 = projects[0]?._id?.toString() ?? 'PASTE_PROJECT_ID_HERE';
+    const p2 = projects[1]?._id?.toString() ?? p1;
+    const due1 = this.formatDateForCsv(this.addDays(new Date(), 7));
+    const due2 = this.formatDateForCsv(this.addDays(new Date(), 14));
+
+    const lines = [
+      TASK_CSV_HEADERS.join(','),
+      rowToCsv([p1, 'Setup API', 'Configure REST endpoints', 'john@smartpm.dev', due1, 'High', 'Todo']),
+      rowToCsv([p2, 'Homepage Design', 'Hero section mockups', 'jane@smartpm.dev', due2, 'Medium', 'In Progress']),
+    ];
+    return lines.join('\n') + '\n';
+  }
+
+  async bulkImportFromCsv(
+    fileBuffer: Buffer,
+    user: UserDocument,
+  ): Promise<{
+    created: number;
+    failed: number;
+    results: { row: number; title: string; success: boolean; error?: string }[];
+  }> {
+    if (user.role === UserRole.MEMBER) {
+      throw new ForbiddenException('Members cannot bulk-import tasks');
+    }
+
+    const text = fileBuffer.toString('utf-8').trim();
+    if (!text) throw new BadRequestException('CSV file is empty');
+
+    const rows = parseCsv(text);
+    if (rows.length < 2) {
+      throw new BadRequestException('CSV must include a header row and at least one data row');
+    }
+
+    const headerMap = this.mapCsvHeaders(rows[0]);
+    if (headerMap.project == null || headerMap.title == null || headerMap.duedate == null) {
+      throw new BadRequestException(
+        'CSV must include columns: project, title, dueDate (download the template for the correct format)',
+      );
+    }
+
+    const dataRows = rows.slice(1).filter((r) => r.some((c) => c.trim()));
+    if (dataRows.length === 0) {
+      throw new BadRequestException('No task rows found in CSV');
+    }
+    if (dataRows.length > 200) {
+      throw new BadRequestException('Maximum 200 tasks per import');
+    }
+
+    const accessibleProjects = await this.projectsService.findAll(user);
+    const projectByName = new Map(
+      accessibleProjects.map((p: any) => [p.name.trim().toLowerCase(), p]),
+    );
+    const projectById = new Map(accessibleProjects.map((p: any) => [p._id.toString(), p]));
+
+    const results: { row: number; title: string; success: boolean; error?: string }[] = [];
+    let created = 0;
+
+    for (let i = 0; i < dataRows.length; i++) {
+      const rowNum = i + 2;
+      const row = dataRows[i];
+      const get = (key: string) => {
+        const idx = headerMap[key];
+        return idx != null ? (row[idx] ?? '').trim() : '';
+      };
+
+      const title = get('title');
+      const projectRef = get('project');
+      const dueDateRaw = get('duedate');
+
+      if (!title || !projectRef || !dueDateRaw) {
+        results.push({
+          row: rowNum,
+          title: title || '(missing title)',
+          success: false,
+          error: 'project, title, and dueDate are required',
+        });
+        continue;
+      }
+
+      const project =
+        projectById.get(projectRef) ??
+        projectByName.get(projectRef.toLowerCase());
+      if (!project) {
+        results.push({
+          row: rowNum,
+          title,
+          success: false,
+          error: `Project not found or not accessible: "${projectRef}"`,
+        });
+        continue;
+      }
+
+      const priorityRaw = get('priority');
+      const statusRaw = get('status');
+      if (priorityRaw && !this.normalizePriority(priorityRaw)) {
+        results.push({
+          row: rowNum,
+          title,
+          success: false,
+          error: 'Invalid priority — use High, Medium, or Low',
+        });
+        continue;
+      }
+      if (statusRaw && !this.normalizeStatus(statusRaw)) {
+        results.push({
+          row: rowNum,
+          title,
+          success: false,
+          error: 'Invalid status — use Todo, In Progress, or Completed',
+        });
+        continue;
+      }
+      const priority = this.normalizePriority(priorityRaw) ?? TaskPriority.MEDIUM;
+      const status = this.normalizeStatus(statusRaw) ?? TaskStatus.TODO;
+      const dueDate = this.normalizeDueDate(dueDateRaw);
+      if (!dueDate) {
+        results.push({
+          row: rowNum,
+          title,
+          success: false,
+          error: 'Please select a valid deadline (use YYYY-MM-DD, today or future)',
+        });
+        continue;
+      }
+
+      let assignedTo: string | undefined;
+      const email = get('assignedtoemail');
+      if (email) {
+        const assignee = await this.usersService.findByEmail(email);
+        if (!assignee) {
+          results.push({ row: rowNum, title, success: false, error: `Assignee not found: ${email}` });
+          continue;
+        }
+        assignedTo = assignee._id.toString();
+      }
+
+      const dto: CreateTaskDto = {
+        project: project._id.toString(),
+        title,
+        description: get('description') || undefined,
+        assignedTo,
+        dueDate,
+        priority,
+        status,
+      };
+
+      try {
+        await this.create(dto, user);
+        results.push({ row: rowNum, title, success: true });
+        created++;
+      } catch (err: any) {
+        results.push({
+          row: rowNum,
+          title,
+          success: false,
+          error: err?.response?.message ?? err?.message ?? 'Import failed',
+        });
+      }
+    }
+
+    return { created, failed: results.length - created, results };
+  }
+
+  private mapCsvHeaders(headerRow: string[]): Record<string, number> {
+    const map: Record<string, number> = {};
+    headerRow.forEach((h, i) => {
+      const key = h.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      map[key] = i;
+      if (key === 'assignedto') map.assignedtoemail = i;
+    });
+    return map;
+  }
+
+  private normalizePriority(value: string): TaskPriority | null {
+    if (!value) return null;
+    const v = value.trim();
+    if (Object.values(TaskPriority).includes(v as TaskPriority)) return v as TaskPriority;
+    return null;
+  }
+
+  private normalizeStatus(value: string): TaskStatus | null {
+    if (!value) return null;
+    const v = value.trim();
+    if (Object.values(TaskStatus).includes(v as TaskStatus)) return v as TaskStatus;
+    return null;
+  }
+
+  private normalizeDueDate(value: string): string | null {
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+    if (!iso) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(iso);
+    due.setHours(0, 0, 0, 0);
+    if (due < today) return null;
+    return iso;
+  }
+
+  private formatDateForCsv(d: Date): string {
+    return d.toISOString().slice(0, 10);
+  }
+
+  private addDays(d: Date, days: number): Date {
+    const r = new Date(d);
+    r.setDate(r.getDate() + days);
+    return r;
   }
 }
