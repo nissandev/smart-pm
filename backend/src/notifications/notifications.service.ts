@@ -15,6 +15,10 @@ interface CreateNotificationInput {
 
 @Injectable()
 export class NotificationsService {
+  /** Throttle due-soon sync — at most once per user every 5 minutes. */
+  private dueSoonSyncAt = new Map<string, number>();
+  private static readonly DUE_SOON_SYNC_MS = 5 * 60 * 1000;
+
   constructor(
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<NotificationDocument>,
@@ -73,6 +77,16 @@ export class NotificationsService {
    * due within 24 hours and not yet completed. Created lazily on read so we don't
    * need a cron job.
    */
+  /** Returns true when sync should run (caller fetches due tasks then calls syncDueSoon). */
+  shouldSyncDueSoon(userId: string): boolean {
+    const last = this.dueSoonSyncAt.get(userId) ?? 0;
+    if (Date.now() - last < NotificationsService.DUE_SOON_SYNC_MS) {
+      return false;
+    }
+    this.dueSoonSyncAt.set(userId, Date.now());
+    return true;
+  }
+
   async syncDueSoon(userId: string, dueTasks: Array<{ _id: any; title: string; project?: any; dueDate: Date }>) {
     if (!dueTasks.length) return;
     const recipient = new Types.ObjectId(userId);

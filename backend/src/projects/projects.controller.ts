@@ -26,13 +26,22 @@ export class ProjectsController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: UserDocument) {
-    return this.projectsService.findAll(user);
+  findAll(
+    @CurrentUser() user: UserDocument,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.projectsService.findAll(user, page, limit);
   }
 
   @Get('stats')
   getStats(@CurrentUser() user: UserDocument) {
     return this.projectsService.getStats(user);
+  }
+
+  @Get('task-counts')
+  getTaskCounts(@CurrentUser() user: UserDocument) {
+    return this.projectsService.getTaskCountsByProject(user);
   }
 
   @Get(':id/sync-from-group/preview')

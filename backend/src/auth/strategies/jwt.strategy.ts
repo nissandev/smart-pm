@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -17,8 +17,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any) {
-    const user = await this.usersService.findById(payload.sub);
+  async validate(payload: { sub: string; email?: string; role?: string }) {
+    const user = await this.usersService.findByIdForAuth(payload.sub);
+    if (!user) {
+      throw new UnauthorizedException('User no longer exists');
+    }
+    if (user.isActive === false) {
+      throw new UnauthorizedException('Account is disabled');
+    }
     return user;
   }
 }

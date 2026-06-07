@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Project, ProjectDocument, ProjectStatus } from '../projects/project.schema';
 import { Task, TaskDocument, TaskStatus, TaskPriority } from '../tasks/task.schema';
 import { UserDocument, UserRole } from '../users/user.schema';
 import { ActivityService } from '../activity/activity.service';
+import { buildProjectScopeFilter, buildTaskScopeFilter } from '../common/project-scope.util';
 
 @Injectable()
 export class DashboardService {
@@ -15,65 +16,159 @@ export class DashboardService {
   ) {}
 
   async getSummary(user: UserDocument) {
-    const projectQuery = this.buildProjectQuery(user);
-    const projects = await this.projectModel.find(projectQuery).lean();
-    const projectIds = projects.map((p) => p._id);
-
-    const taskQuery = this.buildTaskQuery(user, projectIds);
-    const tasks = await this.taskModel
-      .find(taskQuery)
-      .populate('assignedTo', 'name')
-      .lean();
-
+    const projectQuery = buildProjectScopeFilter(user);
     const now = new Date();
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
 
-    // KPI stats
+    const projectRows = await this.projectModel
+      .find(projectQuery)
+      .select('_id name status deadline')
+      .lean()
+      .exec();
+    const projectIds = projectRows.map((p) => p._id as Types.ObjectId);
+    const taskFilter = buildTaskScopeFilter(user, projectIds);
+
+    const [
+      statusCounts,
+      priorityCounts,
+      overdueCount,
+      perProjectCounts,
+      trendTasks,
+      upcomingDeadlines,
+      highPriorityTasks,
+      workloadRows,
+    ] = await Promise.all([
+      this.taskModel.aggregate([
+        { $match: taskFilter },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+      this.taskModel.aggregate([
+        { $match: taskFilter },
+        { $group: { _id: '$priority', count: { $sum: 1 } } },
+      ]),
+      this.taskModel.countDocuments({
+        ...taskFilter,
+        status: { $ne: TaskStatus.COMPLETED },
+        dueDate: { $lt: now },
+      }),
+      this.taskModel.aggregate([
+        { $match: taskFilter },
+        {
+          $group: {
+            _id: '$project',
+            total: { $sum: 1 },
+            completed: {
+              $sum: { $cond: [{ $eq: ['$status', TaskStatus.COMPLETED] }, 1, 0] },
+            },
+            pending: {
+              $sum: { $cond: [{ $ne: ['$status', TaskStatus.COMPLETED] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+      this.taskModel.find(taskFilter).select('status createdAt updatedAt').lean().exec(),
+      this.taskModel
+        .find({
+          ...taskFilter,
+          status: { $ne: TaskStatus.COMPLETED },
+          dueDate: { $gte: now, $lte: sevenDaysFromNow },
+        })
+        .populate('assignedTo', 'name')
+        .sort({ dueDate: 1 })
+        .limit(10)
+        .lean()
+        .exec(),
+      this.taskModel
+        .find({
+          ...taskFilter,
+          priority: TaskPriority.HIGH,
+          status: { $ne: TaskStatus.COMPLETED },
+        })
+        .populate('assignedTo', 'name')
+        .sort({ dueDate: 1 })
+        .limit(10)
+        .lean()
+        .exec(),
+      this.taskModel.aggregate([
+        { $match: { ...taskFilter, assignedTo: { $exists: true, $ne: null } } },
+        {
+          $group: {
+            _id: '$assignedTo',
+            total: { $sum: 1 },
+            completed: {
+              $sum: { $cond: [{ $eq: ['$status', TaskStatus.COMPLETED] }, 1, 0] },
+            },
+            inProgress: {
+              $sum: { $cond: [{ $eq: ['$status', TaskStatus.IN_PROGRESS] }, 1, 0] },
+            },
+            todo: {
+              $sum: { $cond: [{ $eq: ['$status', TaskStatus.TODO] }, 1, 0] },
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+          },
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        { $sort: { total: -1 } },
+      ]),
+    ]);
+
+    const statusMap = new Map(statusCounts.map((r) => [r._id, r.count]));
+    const todo = statusMap.get(TaskStatus.TODO) ?? 0;
+    const inProgress = statusMap.get(TaskStatus.IN_PROGRESS) ?? 0;
+    const completed = statusMap.get(TaskStatus.COMPLETED) ?? 0;
+    const totalTasks = todo + inProgress + completed;
+
     const taskStats = {
-      total: tasks.length,
-      completed: tasks.filter((t) => t.status === TaskStatus.COMPLETED).length,
-      inProgress: tasks.filter((t) => t.status === TaskStatus.IN_PROGRESS).length,
-      todo: tasks.filter((t) => t.status === TaskStatus.TODO).length,
-      pending: tasks.filter((t) => t.status !== TaskStatus.COMPLETED).length,
-      overdue: tasks.filter(
-        (t) => t.status !== TaskStatus.COMPLETED && new Date(t.dueDate) < now,
-      ).length,
+      total: totalTasks,
+      completed,
+      inProgress,
+      todo,
+      pending: totalTasks - completed,
+      overdue: overdueCount,
     };
 
     const projectStats = {
-      total: projects.length,
-      active: projects.filter((p) => p.status === ProjectStatus.ACTIVE).length,
-      completed: projects.filter((p) => p.status === ProjectStatus.COMPLETED).length,
-      onHold: projects.filter((p) => p.status === ProjectStatus.ON_HOLD).length,
+      total: projectRows.length,
+      active: projectRows.filter((p) => p.status === ProjectStatus.ACTIVE).length,
+      completed: projectRows.filter((p) => p.status === ProjectStatus.COMPLETED).length,
+      onHold: projectRows.filter((p) => p.status === ProjectStatus.ON_HOLD).length,
     };
 
-    // Tasks by priority (bar chart)
+    const priorityMap = new Map(priorityCounts.map((r) => [r._id, r.count]));
     const tasksByPriority = [
-      { priority: 'High', count: tasks.filter((t) => t.priority === TaskPriority.HIGH).length },
-      { priority: 'Medium', count: tasks.filter((t) => t.priority === TaskPriority.MEDIUM).length },
-      { priority: 'Low', count: tasks.filter((t) => t.priority === TaskPriority.LOW).length },
+      { priority: 'High', count: priorityMap.get(TaskPriority.HIGH) ?? 0 },
+      { priority: 'Medium', count: priorityMap.get(TaskPriority.MEDIUM) ?? 0 },
+      { priority: 'Low', count: priorityMap.get(TaskPriority.LOW) ?? 0 },
     ];
 
-    // Task status distribution (donut chart)
     const taskStatusDistribution = [
-      { status: 'Todo', count: taskStats.todo },
-      { status: 'In Progress', count: taskStats.inProgress },
-      { status: 'Completed', count: taskStats.completed },
+      { status: 'Todo', count: todo },
+      { status: 'In Progress', count: inProgress },
+      { status: 'Completed', count: completed },
     ];
 
-    // Project progress trend (PRD §08): tasks completed per week, last 8 weeks.
-    // Uses task.updatedAt as the proxy for "completion time" (last update on a Completed task).
-    const completionTrend = this.buildCompletionTrend(tasks, 8);
+    const completionTrend = this.buildCompletionTrend(trendTasks, 8);
 
-    // Project progress summary
-    // PRD §08 deadline indicator: green > 7 days, amber 2–7 days, red < 2 days OR overdue
-    const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-    const projectSummary = projects.map((p) => {
-      const projectTasks = tasks.filter((t) => t.project.toString() === p._id.toString());
-      const completedCount = projectTasks.filter((t) => t.status === TaskStatus.COMPLETED).length;
-      const completionPct = projectTasks.length > 0
-        ? Math.round((completedCount / projectTasks.length) * 100)
-        : 0;
+    const countsByProject = new Map(
+      perProjectCounts.map((r) => [r._id.toString(), r]),
+    );
+
+    const projectSummary = projectRows.map((p) => {
+      const counts = countsByProject.get(p._id.toString()) ?? {
+        total: 0,
+        completed: 0,
+        pending: 0,
+      };
+      const completionPct =
+        counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0;
       const deadlineDate = new Date(p.deadline);
       const isCompleted = p.status === ProjectStatus.COMPLETED;
       const isOverdue = !isCompleted && deadlineDate < now;
@@ -86,46 +181,33 @@ export class DashboardService {
         name: p.name,
         status: p.status,
         deadline: p.deadline,
-        totalTasks: projectTasks.length,
-        completedTasks: completedCount,
-        pendingTasks: projectTasks.filter((t) => t.status !== TaskStatus.COMPLETED).length,
+        totalTasks: counts.total,
+        completedTasks: counts.completed,
+        pendingTasks: counts.pending,
         completionPct,
         deadlineColor,
       };
     });
 
-    // Upcoming deadlines (next 7 days — tasks not completed)
-    const upcomingDeadlines = tasks
-      .filter((t) => {
-        const due = new Date(t.dueDate);
-        return t.status !== TaskStatus.COMPLETED && due >= now && due <= sevenDaysFromNow;
-      })
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-      .slice(0, 10);
+    const memberWorkload = workloadRows.map((r) => ({
+      name: r.user?.name ?? 'Unknown',
+      total: r.total,
+      completed: r.completed,
+      inProgress: r.inProgress,
+      todo: r.todo,
+    }));
 
-    // High-priority tasks (not completed)
-    const highPriorityTasks = tasks
-      .filter((t) => t.priority === TaskPriority.HIGH && t.status !== TaskStatus.COMPLETED)
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-      .slice(0, 10);
-
-    // Member workload summary
-    const memberWorkload = this.buildMemberWorkload(tasks);
-
-    // Team productivity (completed tasks per member)
     const teamProductivity = memberWorkload
       .map((m) => ({ name: m.name, completed: m.completed }))
       .filter((m) => m.completed > 0)
       .sort((a, b) => b.completed - a.completed);
 
-    // Recent activity (role-scoped per PRD §02 permission matrix)
-    let recentActivity: any[] = [];
+    let recentActivity: unknown[] = [];
     if (user.role === UserRole.ADMIN) {
       recentActivity = await this.activityService.findRecent(10);
     } else if (user.role === UserRole.PROJECT_MANAGER) {
-      recentActivity = await this.activityService.findRecent(10, { projectIds: projectIds });
+      recentActivity = await this.activityService.findRecent(10, { projectIds });
     }
-    // Members do not see activity log per PRD permission matrix.
 
     return {
       projects: projectStats,
@@ -142,12 +224,9 @@ export class DashboardService {
     };
   }
 
-  // Bucket completed tasks into the last `weeks` ISO weeks based on updatedAt.
-  // Returns: [{ label: 'Apr 22', completed: 3, created: 5 }, …]
-  private buildCompletionTrend(tasks: any[], weeks: number) {
+  private buildCompletionTrend(tasks: Array<{ status: TaskStatus; createdAt?: Date; updatedAt?: Date }>, weeks: number) {
     const buckets: { start: Date; end: Date; label: string; completed: number; created: number }[] = [];
     const now = new Date();
-    // Normalise to start-of-day (UTC) to make bucketing deterministic
     const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     for (let i = weeks - 1; i >= 0; i--) {
       const end = new Date(todayUTC);
@@ -177,63 +256,75 @@ export class DashboardService {
     return buckets.map((b) => ({ label: b.label, completed: b.completed, created: b.created }));
   }
 
-  private buildProjectQuery(user: UserDocument) {
-    if (user.role === UserRole.ADMIN) return {};
-    if (user.role === UserRole.PROJECT_MANAGER) {
-      return { $or: [{ leadId: (user as any)._id }, { createdBy: (user as any)._id }] };
-    }
-    return { members: (user as any)._id };
-  }
-
-  private buildTaskQuery(user: UserDocument, projectIds: any[]) {
-    if (user.role === UserRole.MEMBER) return { assignedTo: (user as any)._id };
-    return { project: { $in: projectIds } };
-  }
-
   async getMyWork(
     user: UserDocument,
     filters: { project?: string; assignee?: string } = {},
   ) {
-    const projectQuery = this.buildProjectQuery(user);
-    let projects = await this.projectModel.find(projectQuery).select('name').lean();
-
+    const projectQuery = buildProjectScopeFilter(user);
+    let projectFilter: Record<string, unknown> = projectQuery;
     if (filters.project) {
-      projects = projects.filter((p) => p._id.toString() === filters.project);
+      projectFilter = { $and: [projectQuery, { _id: new Types.ObjectId(filters.project) }] };
     }
 
-    const projectIds = projects.map((p) => p._id);
-    const taskQuery: any = this.buildTaskQuery(user, projectIds);
+    const projectRows = await this.projectModel.find(projectFilter).select('name').lean().exec();
+    const projectIds = projectRows.map((p) => p._id as Types.ObjectId);
+    let taskQuery: Record<string, unknown> = buildTaskScopeFilter(user, projectIds);
     if (filters.assignee) {
-      taskQuery.assignedTo = filters.assignee;
+      taskQuery = {
+        $and: [taskQuery, { assignedTo: new Types.ObjectId(filters.assignee) }],
+      };
     }
-
-    const tasks = await this.taskModel
-      .find(taskQuery)
-      .populate('project', 'name')
-      .populate('assignedTo', 'name email avatar')
-      .sort({ dueDate: 1 })
-      .lean();
 
     const now = new Date();
     const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    const incomplete = tasks.filter((t) => t.status !== TaskStatus.COMPLETED);
 
-    const overdue = incomplete.filter((t) => new Date(t.dueDate) < now);
-    const dueSoon = incomplete.filter((t) => {
-      const due = new Date(t.dueDate);
-      return due >= now && due <= in48h;
-    });
-    const stagnant = incomplete.filter(
-      (t) => t.status === TaskStatus.TODO && new Date(t.dueDate) < now,
-    );
-
-    const assigneeMap = new Map<string, string>();
-    for (const t of tasks) {
-      if (!t.assignedTo) continue;
-      const id = (t.assignedTo as any)._id?.toString() ?? t.assignedTo.toString();
-      const name = (t.assignedTo as any).name ?? 'Unknown';
-      assigneeMap.set(id, name);
-    }
+    const [overdue, dueSoon, stagnant, assigneeRows] = await Promise.all([
+      this.taskModel
+        .find({ ...taskQuery, status: { $ne: TaskStatus.COMPLETED }, dueDate: { $lt: now } })
+        .populate('project', 'name')
+        .populate('assignedTo', 'name email avatar')
+        .sort({ dueDate: 1 })
+        .lean()
+        .exec(),
+      this.taskModel
+        .find({
+          ...taskQuery,
+          status: { $ne: TaskStatus.COMPLETED },
+          dueDate: { $gte: now, $lte: in48h },
+        })
+        .populate('project', 'name')
+        .populate('assignedTo', 'name email avatar')
+        .sort({ dueDate: 1 })
+        .lean()
+        .exec(),
+      this.taskModel
+        .find({
+          ...taskQuery,
+          status: TaskStatus.TODO,
+          dueDate: { $lt: now },
+        })
+        .populate('project', 'name')
+        .populate('assignedTo', 'name email avatar')
+        .sort({ dueDate: 1 })
+        .lean()
+        .exec(),
+      this.taskModel
+        .aggregate([
+          { $match: { ...taskQuery, assignedTo: { $exists: true, $ne: null } } },
+          { $group: { _id: '$assignedTo' } },
+          {
+            $lookup: {
+              from: 'users',
+              localField: '_id',
+              foreignField: '_id',
+              as: 'user',
+            },
+          },
+          { $unwind: '$user' },
+          { $project: { _id: 1, name: '$user.name' } },
+          { $sort: { name: 1 } },
+        ]),
+    ]);
 
     return {
       counts: {
@@ -245,29 +336,9 @@ export class DashboardService {
       dueSoon,
       stagnant,
       filters: {
-        projects: projects.map((p) => ({ _id: p._id, name: p.name })),
-        assignees: Array.from(assigneeMap.entries())
-          .map(([_id, name]) => ({ _id, name }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+        projects: projectRows.map((p) => ({ _id: p._id, name: p.name })),
+        assignees: assigneeRows.map((r) => ({ _id: r._id, name: r.name })),
       },
     };
-  }
-
-  private buildMemberWorkload(tasks: any[]) {
-    const map = new Map<string, { name: string; total: number; completed: number; inProgress: number; todo: number }>();
-    for (const t of tasks) {
-      if (!t.assignedTo) continue;
-      const id = t.assignedTo._id?.toString() ?? t.assignedTo.toString();
-      const name = t.assignedTo.name ?? 'Unknown';
-      if (!map.has(id)) {
-        map.set(id, { name, total: 0, completed: 0, inProgress: 0, todo: 0 });
-      }
-      const entry = map.get(id)!;
-      entry.total++;
-      if (t.status === TaskStatus.COMPLETED) entry.completed++;
-      else if (t.status === TaskStatus.IN_PROGRESS) entry.inProgress++;
-      else entry.todo++;
-    }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
   }
 }

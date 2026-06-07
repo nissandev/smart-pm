@@ -52,8 +52,15 @@ export class TasksController {
     @Query('priority') priority?: string,
     @Query('assignedTo') assignedTo?: string,
     @Query('createdBy') createdBy?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.tasksService.findAll(user, { project, status, priority, assignedTo, createdBy });
+    return this.tasksService.findAll(
+      user,
+      { project, status, priority, assignedTo, createdBy },
+      page,
+      limit,
+    );
   }
 
   @Get('stats')

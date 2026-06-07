@@ -16,11 +16,18 @@ import { ActivityService } from '../activity/activity.service';
 import { ActionType } from '../activity/activity.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.schema';
-import { Task, TaskDocument } from '../tasks/task.schema';
+import { Task, TaskDocument, TaskStatus } from '../tasks/task.schema';
 import { UsersService } from '../users/users.service';
 import { GroupsService } from '../groups/groups.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { isProjectLead } from './project-lead.util';
+import { buildProjectScopeFilter } from '../common/project-scope.util';
+import {
+  parsePagination,
+  toPaginatedResult,
+  type PaginatedResult,
+} from '../common/pagination.util';
+import { collectAttachmentUrls, deleteUploadByUrl } from '../common/file-cleanup.util';
 
 @Injectable()
 export class ProjectsService {
@@ -107,22 +114,74 @@ export class ProjectsService {
     return saved;
   }
 
-  async findAll(user: UserDocument): Promise<ProjectDocument[]> {
-    const query =
-      user.role === UserRole.ADMIN
-        ? {}
-        : user.role === UserRole.PROJECT_MANAGER
-          ? { $or: [{ leadId: user._id }, { createdBy: user._id }] }
-          : { members: user._id };
-
-    return this.projectModel
+  async findAll(
+    user: UserDocument,
+    page?: string,
+    limit?: string,
+  ): Promise<ProjectDocument[] | PaginatedResult<ProjectDocument>> {
+    const query = buildProjectScopeFilter(user);
+    const pagination = parsePagination(page, limit);
+    const baseQuery = this.projectModel
       .find(query)
       .populate('createdBy', 'name email role')
       .populate('leadId', 'name email role')
       .populate({ path: 'members', model: 'User', select: 'name email role' })
       .populate({ path: 'teamId', select: 'name' })
-      .sort({ createdAt: -1 })
-      .exec();
+      .sort({ createdAt: -1 });
+
+    if (!pagination) {
+      return baseQuery.exec();
+    }
+
+    const [data, total] = await Promise.all([
+      baseQuery.skip(pagination.skip).limit(pagination.limit).exec(),
+      this.projectModel.countDocuments(query).exec(),
+    ]);
+    return toPaginatedResult(data, total, pagination);
+  }
+
+  /** Lightweight id+name list for bulk import / scoping (no populate). */
+  async findAccessibleProjectsMeta(
+    user: UserDocument,
+  ): Promise<{ _id: Types.ObjectId; name: string }[]> {
+    const query = buildProjectScopeFilter(user);
+    return this.projectModel.find(query).select('_id name').lean().exec() as Promise<
+      { _id: Types.ObjectId; name: string }[]
+    >;
+  }
+
+  /** IDs only — avoids heavy populate when scoping tasks/expenses. */
+  async findAccessibleProjectIds(user: UserDocument): Promise<Types.ObjectId[]> {
+    const query = buildProjectScopeFilter(user);
+    const rows = await this.projectModel.find(query).select('_id').lean().exec();
+    return rows.map((p) => p._id as Types.ObjectId);
+  }
+
+  /** Task counts per project for list cards (aggregation, no full task load). */
+  async getTaskCountsByProject(
+    user: UserDocument,
+  ): Promise<Record<string, { total: number; completed: number }>> {
+    const projectIds = await this.findAccessibleProjectIds(user);
+    if (projectIds.length === 0) return {};
+
+    const rows = await this.taskModel.aggregate([
+      { $match: { project: { $in: projectIds } } },
+      {
+        $group: {
+          _id: '$project',
+          total: { $sum: 1 },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$status', TaskStatus.COMPLETED] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    const map: Record<string, { total: number; completed: number }> = {};
+    for (const row of rows) {
+      map[row._id.toString()] = { total: row.total, completed: row.completed };
+    }
+    return map;
   }
 
   async findById(id: string, user: UserDocument): Promise<ProjectDocument> {
@@ -180,19 +239,38 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('Project not found');
     this.checkLeadOrAdmin(project, user);
 
-    // PRD §03: deleting a project cascades to all its tasks and expenses
-    const deleted = await this.taskModel.deleteMany({ project: project._id });
-    const deletedExpenses = await this.expensesService.deleteByProject(project._id);
+    const tasksForFiles = await this.taskModel
+      .find({ project: project._id })
+      .select('attachments')
+      .lean();
+    const fileUrls = tasksForFiles.flatMap((t) => collectAttachmentUrls(t.attachments));
+
+    const session = await this.projectModel.db.startSession();
+    let deletedTaskCount = 0;
+    let deletedExpenses = 0;
+
+    try {
+      await session.withTransaction(async () => {
+        const deleted = await this.taskModel.deleteMany({ project: project._id }, { session });
+        deletedTaskCount = deleted.deletedCount ?? 0;
+        deletedExpenses = await this.expensesService.deleteByProject(project._id, session);
+        await project.deleteOne({ session });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    for (const url of fileUrls) {
+      deleteUploadByUrl(url);
+    }
 
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.PROJECT_DELETED,
       entityType: 'project',
       entityId: project._id,
-      description: `Project "${project.name}" was deleted (and ${deleted.deletedCount} task${deleted.deletedCount === 1 ? '' : 's'}${deletedExpenses > 0 ? `, ${deletedExpenses} expense${deletedExpenses === 1 ? '' : 's'}` : ''})`,
+      description: `Project "${project.name}" was deleted (and ${deletedTaskCount} task${deletedTaskCount === 1 ? '' : 's'}${deletedExpenses > 0 ? `, ${deletedExpenses} expense${deletedExpenses === 1 ? '' : 's'}` : ''})`,
     });
-
-    await project.deleteOne();
   }
 
   async addMember(
@@ -726,13 +804,14 @@ export class ProjectsService {
   }
 
   async getStats(user: UserDocument) {
-    const projects = await this.findAll(user);
-    return {
-      total: projects.length,
-      active: projects.filter((p) => p.status === ProjectStatus.ACTIVE).length,
-      completed: projects.filter((p) => p.status === ProjectStatus.COMPLETED).length,
-      onHold: projects.filter((p) => p.status === ProjectStatus.ON_HOLD).length,
-    };
+    const query = buildProjectScopeFilter(user);
+    const [total, active, completed, onHold] = await Promise.all([
+      this.projectModel.countDocuments(query).exec(),
+      this.projectModel.countDocuments({ ...query, status: ProjectStatus.ACTIVE }).exec(),
+      this.projectModel.countDocuments({ ...query, status: ProjectStatus.COMPLETED }).exec(),
+      this.projectModel.countDocuments({ ...query, status: ProjectStatus.ON_HOLD }).exec(),
+    ]);
+    return { total, active, completed, onHold };
   }
 
   private checkAccess(project: ProjectDocument, user: UserDocument) {

@@ -57,6 +57,10 @@ export const projectsApi = {
   getAll: () => api.get<Project[]>('/projects'),
   getById: (id: string) => api.get<Project>(`/projects/${id}`),
   getStats: () => api.get('/projects/stats'),
+  getTaskCounts: () =>
+    api
+      .get<Record<string, { total: number; completed: number }>>('/projects/task-counts')
+      .then((r) => r.data),
   create: (data: CreateProjectInput) => api.post<Project>('/projects', data),
   update: (id: string, data: Partial<Project>) => api.patch<Project>(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),

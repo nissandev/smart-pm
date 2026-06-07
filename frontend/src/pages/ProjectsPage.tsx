@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, differenceInDays, addDays, startOfDay } from 'date-fns';
-import { projectsApi, usersApi, groupsApi, tasksApi, type CreateProjectInput } from '../services';
+import { projectsApi, usersApi, groupsApi, type CreateProjectInput } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, ProjectStatusBadge, ConfirmModal,
@@ -15,7 +15,7 @@ import {
 } from '../components/shared';
 import { CopyProjectIdButton } from '../components/projects/CopyProjectIdButton';
 import { formatCurrency, formatTeamLabel } from '../utils/projectTeam';
-import type { Project, User, TeamGroup, Task } from '../types';
+import type { Project, User, TeamGroup } from '../types';
 
 const PAGE_SIZE = 12;
 
@@ -44,30 +44,15 @@ export default function ProjectsPage() {
     queryFn: () => projectsApi.getAll().then((r) => r.data),
   });
 
-  const { data: tasks = [] } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => tasksApi.getAll().then((r) => r.data),
+  const { data: taskStatsByProject = {} } = useQuery({
+    queryKey: ['project-task-counts'],
+    queryFn: () => projectsApi.getTaskCounts(),
   });
 
   const { data: expenseTotals = {} } = useQuery({
     queryKey: ['expense-totals'],
     queryFn: () => projectsApi.getExpenseTotals(),
   });
-
-  const taskStatsByProject = useMemo(() => {
-    const map = new Map<string, { total: number; completed: number }>();
-    for (const t of tasks as Task[]) {
-      const pid =
-        typeof t.project === 'object' && t.project !== null
-          ? t.project._id
-          : String(t.project);
-      const entry = map.get(pid) ?? { total: 0, completed: 0 };
-      entry.total += 1;
-      if (t.status === 'Completed') entry.completed += 1;
-      map.set(pid, entry);
-    }
-    return map;
-  }, [tasks]);
 
   // PRD §09: "Created by (Admin view)" project filter — admin-only.
   const isAdmin = user?.role === 'admin';
@@ -218,7 +203,7 @@ export default function ProjectsPage() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {paginated.map((project) => {
-            const stats = taskStatsByProject.get(project._id) ?? { total: 0, completed: 0 };
+            const stats = taskStatsByProject[project._id] ?? { total: 0, completed: 0 };
             const allTasksDone = stats.total > 0 && stats.completed === stats.total;
 
             return (

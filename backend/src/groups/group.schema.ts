@@ -19,3 +19,7 @@ export class TeamGroup {
 }
 
 export const TeamGroupSchema = SchemaFactory.createForClass(TeamGroup);
+
+TeamGroupSchema.index({ leadId: 1 });
+TeamGroupSchema.index({ memberIds: 1 });
+TeamGroupSchema.index({ name: 1 });

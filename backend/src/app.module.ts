@@ -23,6 +23,10 @@ import { HealthController } from './health.controller';
       useFactory: (config: ConfigService) => ({
         uri: config.get<string>('MONGO_URI'),
         dbName: config.get<string>('MONGO_DB', 'smartpm'),
+        maxPoolSize: config.get<number>('MONGO_MAX_POOL_SIZE', 20),
+        minPoolSize: config.get<number>('MONGO_MIN_POOL_SIZE', 2),
+        serverSelectionTimeoutMS: 10_000,
+        socketTimeoutMS: 45_000,
       }),
       inject: [ConfigService],
     }),

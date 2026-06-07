@@ -24,18 +24,19 @@ export class NotificationsController {
   async list(@Request() req: any, @Query('limit') limit = '20') {
     const userId = req.user._id.toString();
 
-    // Sync due-soon notifications: tasks assigned to me, not completed, due within 24h.
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const dueSoonTasks = await this.taskModel
-      .find({
-        assignedTo: req.user._id,
-        status: { $ne: TaskStatus.COMPLETED },
-        dueDate: { $gte: now, $lte: tomorrow },
-      })
-      .populate('project', 'name')
-      .lean();
-    await this.notifications.syncDueSoon(userId, dueSoonTasks as any);
+    if (this.notifications.shouldSyncDueSoon(userId)) {
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const dueSoonTasks = await this.taskModel
+        .find({
+          assignedTo: req.user._id,
+          status: { $ne: TaskStatus.COMPLETED },
+          dueDate: { $gte: now, $lte: tomorrow },
+        })
+        .select('_id title project dueDate')
+        .lean();
+      await this.notifications.syncDueSoon(userId, dueSoonTasks as any);
+    }
 
     const [items, unread] = await Promise.all([
       this.notifications.findForUser(userId, { limit: +limit }),

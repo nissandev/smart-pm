@@ -2,12 +2,13 @@ import {
   Injectable, NotFoundException, ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, Types, ClientSession } from 'mongoose';
 import { Expense, ExpenseDocument, ExpenseCategory } from './expense.schema';
 import { CreateExpenseDto, UpdateExpenseDto } from './dto/create-expense.dto';
 import { Project, ProjectDocument } from '../projects/project.schema';
 import { UserRole, UserDocument } from '../users/user.schema';
 import { isProjectLead } from '../projects/project-lead.util';
+import { buildProjectScopeFilter } from '../common/project-scope.util';
 import { ActivityService } from '../activity/activity.service';
 import { ActionType } from '../activity/activity.schema';
 
@@ -37,8 +38,38 @@ export class ExpensesService {
 
   async getSummary(projectId: string, user: UserDocument): Promise<ExpenseSummary> {
     await this.assertProjectAccess(projectId, user);
-    const expenses = await this.expenseModel.find({ project: projectId }).exec();
-    return this.buildSummary(expenses);
+    const pid = new Types.ObjectId(projectId);
+    const [totalsRow, categoryRows] = await Promise.all([
+      this.expenseModel.aggregate([
+        { $match: { project: pid } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$amount' },
+            count: { $sum: 1 },
+            currency: { $first: '$currency' },
+          },
+        },
+      ]),
+      this.expenseModel.aggregate([
+        { $match: { project: pid } },
+        { $group: { _id: '$category', total: { $sum: '$amount' } } },
+        { $sort: { total: -1 } },
+      ]),
+    ]);
+
+    const totals = totalsRow[0];
+    const total = Math.round((totals?.total ?? 0) * 100) / 100;
+
+    return {
+      total,
+      currency: totals?.currency ?? 'USD',
+      count: totals?.count ?? 0,
+      byCategory: categoryRows.map((row) => ({
+        category: row._id as ExpenseCategory,
+        total: Math.round(row.total * 100) / 100,
+      })),
+    };
   }
 
   /** Totals for all projects the user can access (for project list cards). */
@@ -145,46 +176,14 @@ export class ExpensesService {
     await expense.deleteOne();
   }
 
-  async deleteByProject(projectId: Types.ObjectId): Promise<number> {
-    const result = await this.expenseModel.deleteMany({ project: projectId });
+  async deleteByProject(projectId: Types.ObjectId, session?: ClientSession): Promise<number> {
+    const result = await this.expenseModel.deleteMany({ project: projectId }, { session });
     return result.deletedCount ?? 0;
   }
 
-  private buildSummary(expenses: ExpenseDocument[]): ExpenseSummary {
-    const byCat = new Map<ExpenseCategory, number>();
-    let total = 0;
-    let currency = 'USD';
-
-    for (const e of expenses) {
-      total += e.amount;
-      currency = e.currency || currency;
-      byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.amount);
-    }
-
-    total = Math.round(total * 100) / 100;
-
-    return {
-      total,
-      currency,
-      count: expenses.length,
-      byCategory: Array.from(byCat.entries())
-        .map(([category, catTotal]) => ({
-          category,
-          total: Math.round(catTotal * 100) / 100,
-        }))
-        .sort((a, b) => b.total - a.total),
-    };
-  }
-
   private async getAccessibleProjectIds(user: UserDocument): Promise<string[]> {
-    const query =
-      user.role === UserRole.ADMIN
-        ? {}
-        : user.role === UserRole.PROJECT_MANAGER
-          ? { $or: [{ leadId: user._id }, { createdBy: user._id }] }
-          : { members: user._id };
-
-    const projects = await this.projectModel.find(query).select('_id').exec();
+    const query = buildProjectScopeFilter(user);
+    const projects = await this.projectModel.find(query).select('_id').lean().exec();
     return projects.map((p) => p._id.toString());
   }
 

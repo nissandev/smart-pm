@@ -44,3 +44,7 @@ export class Activity {
 }
 
 export const ActivitySchema = SchemaFactory.createForClass(Activity);
+
+ActivitySchema.index({ project: 1, createdAt: -1 });
+ActivitySchema.index({ createdAt: -1 });
+ActivitySchema.index({ actor: 1, createdAt: -1 });

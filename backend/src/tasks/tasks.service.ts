@@ -19,6 +19,13 @@ import { ActionType } from '../activity/activity.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/notification.schema';
 import { UsersService } from '../users/users.service';
+import { buildTaskScopeFilter } from '../common/project-scope.util';
+import {
+  parsePagination,
+  toPaginatedResult,
+  type PaginatedResult,
+} from '../common/pagination.util';
+import { collectAttachmentUrls, deleteUploadByUrl } from '../common/file-cleanup.util';
 
 @Injectable()
 export class TasksService {
@@ -100,52 +107,42 @@ export class TasksService {
     return saved;
   }
 
-  async findAll(user: UserDocument, filters?: any): Promise<TaskDocument[]> {
-    const query: any = {};
+  async findAll(
+    user: UserDocument,
+    filters?: Record<string, string | undefined>,
+    page?: string,
+    limit?: string,
+  ): Promise<TaskDocument[] | PaginatedResult<TaskDocument>> {
+    const projectIds = await this.projectsService.findAccessibleProjectIds(user);
+    const conditions: Record<string, unknown>[] = [buildTaskScopeFilter(user, projectIds)];
 
-    if (user.role === UserRole.MEMBER) {
-      query.assignedTo = user._id;
-    } else if (user.role === UserRole.PROJECT_MANAGER) {
-      const ownedProjects = await this.projectsService.findAll(user);
-      const pmScope = {
-        $or: [
-          { project: { $in: ownedProjects.map((p: any) => p._id) } },
-          { assignedTo: user._id },
-        ],
-      };
-      if (filters?.project) {
-        query.$and = [pmScope, { project: filters.project }];
-      } else {
-        Object.assign(query, pmScope);
-      }
-    }
-
-    if (filters?.project && user.role !== UserRole.PROJECT_MANAGER) {
-      query.project = filters.project;
-    }
-    if (filters?.status) query.status = filters.status;
-    if (filters?.priority) query.priority = filters.priority;
-    if (filters?.assignedTo) query.assignedTo = filters.assignedTo;
-    // PRD §09: "Created by" filter (admin-only view)
+    if (filters?.project) conditions.push({ project: filters.project });
+    if (filters?.status) conditions.push({ status: filters.status });
+    if (filters?.priority) conditions.push({ priority: filters.priority });
+    if (filters?.assignedTo) conditions.push({ assignedTo: filters.assignedTo });
     if (filters?.createdBy && user.role === UserRole.ADMIN) {
-      query.createdBy = filters.createdBy;
+      conditions.push({ createdBy: filters.createdBy });
     }
 
-    return this.taskModel
+    const query = conditions.length === 1 ? conditions[0] : { $and: conditions };
+
+    const pagination = parsePagination(page, limit);
+    const baseQuery = this.taskModel
       .find(query)
-      .populate({
-        path: 'project',
-        select: 'name createdBy leadId members',
-        populate: [
-          { path: 'createdBy', select: 'name email role' },
-          { path: 'leadId', select: 'name email role' },
-          { path: 'members', select: 'name email role' },
-        ],
-      })
+      .populate('project', 'name leadId members createdBy')
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 })
-      .exec();
+      .sort({ createdAt: -1 });
+
+    if (!pagination) {
+      return baseQuery.exec();
+    }
+
+    const [data, total] = await Promise.all([
+      baseQuery.skip(pagination.skip).limit(pagination.limit).exec(),
+      this.taskModel.countDocuments(query).exec(),
+    ]);
+    return toPaginatedResult(data, total, pagination);
   }
 
   async findById(id: string): Promise<TaskDocument> {
@@ -300,7 +297,11 @@ export class TasksService {
       project: projectId,
     });
 
+    const fileUrls = collectAttachmentUrls(task.attachments);
     await task.deleteOne();
+    for (const url of fileUrls) {
+      deleteUploadByUrl(url);
+    }
   }
 
   // ── Attachments (PRD §10) ─────────────────────────────────────────
@@ -348,6 +349,7 @@ export class TasksService {
     if (!isOwner && !isAdmin && !isProjectLead) {
       throw new ForbiddenException('You can only remove your own attachments');
     }
+    deleteUploadByUrl(att.url);
     task.attachments.splice(index, 1);
     return task.save();
   }
@@ -477,22 +479,41 @@ export class TasksService {
   }
 
   async getStats(user: UserDocument) {
-    const tasks = await this.findAll(user);
+    const projectIds = await this.projectsService.findAccessibleProjectIds(user);
+    const taskFilter = buildTaskScopeFilter(user, projectIds);
     const now = new Date();
-    return {
-      total: tasks.length,
-      todo: tasks.filter((t) => t.status === TaskStatus.TODO).length,
-      inProgress: tasks.filter((t) => t.status === TaskStatus.IN_PROGRESS).length,
-      completed: tasks.filter((t) => t.status === TaskStatus.COMPLETED).length,
-      overdue: tasks.filter(
-        (t) => t.status !== TaskStatus.COMPLETED && new Date(t.dueDate) < now,
-      ).length,
-    };
+
+    const [statusRows, overdue] = await Promise.all([
+      this.taskModel.aggregate([
+        { $match: taskFilter },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+      this.taskModel
+        .countDocuments({
+          ...taskFilter,
+          status: { $ne: TaskStatus.COMPLETED },
+          dueDate: { $lt: now },
+        })
+        .exec(),
+    ]);
+
+    let total = 0;
+    let todo = 0;
+    let inProgress = 0;
+    let completed = 0;
+    for (const row of statusRows) {
+      total += row.count;
+      if (row._id === TaskStatus.TODO) todo = row.count;
+      else if (row._id === TaskStatus.IN_PROGRESS) inProgress = row.count;
+      else if (row._id === TaskStatus.COMPLETED) completed = row.count;
+    }
+
+    return { total, todo, inProgress, completed, overdue };
   }
 
   /** CSV template with example rows matching import format. */
   async buildImportTemplate(user: UserDocument): Promise<string> {
-    const projects = await this.projectsService.findAll(user);
+    const projects = await this.projectsService.findAccessibleProjectsMeta(user);
     const p1 = projects[0]?._id?.toString() ?? 'PASTE_PROJECT_ID_HERE';
     const p2 = projects[1]?._id?.toString() ?? p1;
     const due1 = this.formatDateForCsv(this.addDays(new Date(), 7));
@@ -541,11 +562,21 @@ export class TasksService {
       throw new BadRequestException('Maximum 200 tasks per import');
     }
 
-    const accessibleProjects = await this.projectsService.findAll(user);
+    const accessibleProjects = await this.projectsService.findAccessibleProjectsMeta(user);
     const projectByName = new Map(
-      accessibleProjects.map((p: any) => [p.name.trim().toLowerCase(), p]),
+      accessibleProjects.map((p) => [p.name.trim().toLowerCase(), p]),
     );
-    const projectById = new Map(accessibleProjects.map((p: any) => [p._id.toString(), p]));
+    const projectById = new Map(accessibleProjects.map((p) => [p._id.toString(), p]));
+
+    const emailSet = new Set<string>();
+    for (const row of dataRows) {
+      const idx = headerMap.assignedtoemail;
+      if (idx != null) {
+        const email = (row[idx] ?? '').trim().toLowerCase();
+        if (email) emailSet.add(email);
+      }
+    }
+    const usersByEmail = await this.usersService.findByEmails(Array.from(emailSet));
 
     const results: { row: number; title: string; success: boolean; error?: string }[] = [];
     let created = 0;
@@ -621,7 +652,7 @@ export class TasksService {
       let assignedTo: string | undefined;
       const email = get('assignedtoemail');
       if (email) {
-        const assignee = await this.usersService.findByEmail(email);
+        const assignee = usersByEmail.get(email.toLowerCase());
         if (!assignee) {
           results.push({ row: rowNum, title, success: false, error: `Assignee not found: ${email}` });
           continue;

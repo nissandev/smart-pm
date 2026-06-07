@@ -40,3 +40,9 @@ export class Project {
 }
 
 export const ProjectSchema = SchemaFactory.createForClass(Project);
+
+ProjectSchema.index({ leadId: 1 });
+ProjectSchema.index({ createdBy: 1 });
+ProjectSchema.index({ members: 1 });
+ProjectSchema.index({ status: 1, deadline: 1 });
+ProjectSchema.index({ name: 1 });

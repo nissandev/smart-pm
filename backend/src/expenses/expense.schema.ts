@@ -39,3 +39,5 @@ export class Expense {
 }
 
 export const ExpenseSchema = SchemaFactory.createForClass(Expense);
+ExpenseSchema.index({ project: 1, date: -1 });
+ExpenseSchema.index({ project: 1, category: 1 });

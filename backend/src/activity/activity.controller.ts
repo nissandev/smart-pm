@@ -22,8 +22,7 @@ export class ActivityController {
     }
     // Project Manager: scope to their own projects (override single-project filter
     // only if it's not one of their projects, otherwise honor it).
-    const owned = await this.projectsService.findAll(user);
-    const ownedIds = owned.map((p: any) => p._id);
+    const ownedIds = await this.projectsService.findAccessibleProjectIds(user);
     if (projectFilter) {
       const allowed = ownedIds.some((id: any) => id.toString() === projectFilter);
       if (!allowed) throw new ForbiddenException('Access denied');

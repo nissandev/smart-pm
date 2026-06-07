@@ -84,3 +84,7 @@ export const TaskSchema = SchemaFactory.createForClass(Task);
 
 // Compound index: title unique per project
 TaskSchema.index({ project: 1, title: 1 }, { unique: true });
+TaskSchema.index({ project: 1, status: 1 });
+TaskSchema.index({ assignedTo: 1, status: 1, dueDate: 1 });
+TaskSchema.index({ createdBy: 1 });
+TaskSchema.index({ dueDate: 1, status: 1 });
