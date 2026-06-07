@@ -81,6 +81,24 @@ const ActivitySchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+const ExpenseSchema = new mongoose.Schema(
+  {
+    project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
+    category: {
+      type: String,
+      enum: ['Hosting', 'AI / API', 'Tools', 'Domain', 'Other'],
+      required: true,
+    },
+    description: String,
+    amount: Number,
+    currency: { type: String, default: 'USD' },
+    date: Date,
+    notes: String,
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  },
+  { timestamps: true },
+);
+
 async function seed() {
   await mongoose.connect(MONGO_URI);
   console.log('✅ Connected to MongoDB');
@@ -89,6 +107,7 @@ async function seed() {
   const ProjectModel = mongoose.model('Project', ProjectSchema);
   const TaskModel = mongoose.model('Task', TaskSchema);
   const ActivityModel = mongoose.model('Activity', ActivitySchema);
+  const ExpenseModel = mongoose.model('Expense', ExpenseSchema);
 
   const conn = mongoose.connection;
   await Promise.all([
@@ -96,6 +115,7 @@ async function seed() {
     ProjectModel.deleteMany({}),
     TaskModel.deleteMany({}),
     ActivityModel.deleteMany({}),
+    ExpenseModel.deleteMany({}),
     conn.collection('notifications').deleteMany({}).catch(() => undefined),
     conn.collection('groups').deleteMany({}).catch(() => undefined),
   ]);
@@ -214,6 +234,56 @@ async function seed() {
   ]);
   console.log('✅ Tasks seeded');
 
+  await ExpenseModel.insertMany([
+    {
+      project: website._id,
+      category: 'Hosting',
+      description: 'Vercel Pro plan',
+      amount: 20,
+      currency: 'USD',
+      date: addDays(now, -10),
+      createdBy: admin._id,
+    },
+    {
+      project: website._id,
+      category: 'AI / API',
+      description: 'OpenAI API credits',
+      amount: 85,
+      currency: 'USD',
+      date: addDays(now, -5),
+      notes: 'June billing cycle',
+      createdBy: pm._id,
+    },
+    {
+      project: mobile._id,
+      category: 'Tools',
+      description: 'Expo EAS build credits',
+      amount: 29,
+      currency: 'USD',
+      date: addDays(now, -7),
+      createdBy: pm._id,
+    },
+    {
+      project: mobile._id,
+      category: 'Hosting',
+      description: 'MongoDB Atlas M10',
+      amount: 57,
+      currency: 'USD',
+      date: addDays(now, -3),
+      createdBy: admin._id,
+    },
+    {
+      project: dashboard._id,
+      category: 'Domain',
+      description: 'smartpm.nexarift.com renewal',
+      amount: 12,
+      currency: 'USD',
+      date: addDays(now, -14),
+      createdBy: admin._id,
+    },
+  ]);
+  console.log('💰 Expenses seeded');
+
   await ActivityModel.insertMany([
     {
       actor: admin._id,
@@ -265,7 +335,7 @@ async function seed() {
   console.log('   PM      → pm@smartpm.dev     / pm123456');
   console.log('   Member  → john@smartpm.dev   / member123');
   console.log('   Member  → jane@smartpm.dev   / member123');
-  console.log('\nSample data: 3 projects, 7 tasks, 5 activity entries.\n');
+  console.log('\nSample data: 3 projects, 7 tasks, 5 expenses, 5 activity entries.\n');
 
   await mongoose.disconnect();
   process.exit(0);

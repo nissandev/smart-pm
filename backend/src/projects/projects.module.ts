@@ -8,6 +8,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { Task, TaskSchema } from '../tasks/task.schema';
 import { UsersModule } from '../users/users.module';
 import { GroupsModule } from '../groups/groups.module';
+import { ExpensesModule } from '../expenses/expenses.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { GroupsModule } from '../groups/groups.module';
     NotificationsModule,
     UsersModule,
     GroupsModule,
+    ExpensesModule,
   ],
   providers: [ProjectsService],
   controllers: [ProjectsController],

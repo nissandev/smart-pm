@@ -35,6 +35,7 @@ export default function NotificationBell() {
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list(15).then((r) => r.data),
     refetchInterval: 60_000,
+    retry: 1,
   });
 
   const items: Notification[] = data?.items ?? [];

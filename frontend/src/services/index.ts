@@ -1,7 +1,7 @@
 import api from './api';
 import type {
   Project, Task, User, TeamGroup, DashboardStats, MyWorkStats, GroupSyncPreview, Paginated, Activity,
-  NotificationListResponse,
+  NotificationListResponse, ProjectExpense, ExpenseSummary, ExpenseCategory,
 } from '../types';
 
 // ── Auth ──────────────────────────────────────────────────────
@@ -79,6 +79,30 @@ export const projectsApi = {
   ) => api.post<Project>(`/projects/${projectId}/sync-from-group`, data),
   removeMember: (projectId: string, memberId: string) =>
     api.delete<Project>(`/projects/${projectId}/members/${memberId}`),
+  getExpenseTotals: () =>
+    api.get<Record<string, number>>('/expenses/totals-by-project').then((r) => r.data),
+};
+
+export interface ExpenseInput {
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  currency?: string;
+  date: string;
+  notes?: string;
+}
+
+export const expensesApi = {
+  getAll: (projectId: string) =>
+    api.get<ProjectExpense[]>(`/projects/${projectId}/expenses`).then((r) => r.data),
+  getSummary: (projectId: string) =>
+    api.get<ExpenseSummary>(`/projects/${projectId}/expenses/summary`).then((r) => r.data),
+  create: (projectId: string, data: ExpenseInput) =>
+    api.post<ProjectExpense>(`/projects/${projectId}/expenses`, data).then((r) => r.data),
+  update: (projectId: string, expenseId: string, data: Partial<ExpenseInput>) =>
+    api.patch<ProjectExpense>(`/projects/${projectId}/expenses/${expenseId}`, data).then((r) => r.data),
+  delete: (projectId: string, expenseId: string) =>
+    api.delete(`/projects/${projectId}/expenses/${expenseId}`),
 };
 
 // ── Tasks ─────────────────────────────────────────────────────

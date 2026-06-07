@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Plus, Trash2, UserMinus, Calendar, Edit2,
-  Search, Clock, Users, RefreshCw, UserPlus,
+  Search, Clock, Users, RefreshCw, UserPlus, DollarSign,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, formatDistanceToNow } from 'date-fns';
-import { projectsApi, tasksApi, usersApi, activityApi, groupsApi } from '../services';
+import { projectsApi, tasksApi, usersApi, activityApi, groupsApi, expensesApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, ProjectStatusBadge, PriorityBadge,
@@ -21,6 +21,8 @@ import {
   canManageProject, canRemoveProjectMember, getProjectLeadId, getProjectOwnerId,
 } from '../utils/projectPermissions';
 import { CopyProjectIdButton } from '../components/projects/CopyProjectIdButton';
+import { ProjectExpensesPanel } from '../components/projects/ProjectExpensesPanel';
+import { formatCurrency, formatTeamLabel, getProjectTeamBreakdown, getProjectDeadlineHighlight } from '../utils/projectTeam';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -91,6 +93,12 @@ export default function ProjectDetailPage() {
     queryKey: ['activity', 'project', id],
     queryFn: () => activityApi.getRecent(8, id).then((r) => r.data),
     enabled: !!id && isAdminOrPM,
+  });
+
+  const { data: expenseSummary } = useQuery({
+    queryKey: ['expenses-summary', id],
+    queryFn: () => expensesApi.getSummary(id!),
+    enabled: !!id,
   });
 
   // ── Mutations ──────────────────────────────────────────────────
@@ -182,6 +190,12 @@ export default function ProjectDetailPage() {
   const members = project.members as User[];
   const projectOwnerId = getProjectOwnerId(project);
   const projectLeadId = getProjectLeadId(project);
+  const teamBreakdown = getProjectTeamBreakdown(project);
+  const leadUser =
+    project.leadId && typeof project.leadId === 'object'
+      ? (project.leadId as User)
+      : members.find((m) => m._id === projectLeadId);
+  const membersOnly = members.filter((m) => m._id !== projectLeadId);
   const linkedTeamId = project.teamId
     ? typeof project.teamId === 'object'
       ? (project.teamId as TeamGroup)._id
@@ -213,11 +227,7 @@ export default function ProjectDetailPage() {
       ? Math.round((tasksByStatus.completed / tasks.length) * 100)
       : 0;
 
-  const deadlineColor = isPast(new Date(project.deadline))
-    ? 'text-red-500'
-    : Date.now() > new Date(project.deadline).getTime() - 2 * 86400000
-    ? 'text-amber-500'
-    : 'text-slate-500 dark:text-slate-400';
+  const deadlineHighlight = getProjectDeadlineHighlight(project.deadline, project.status);
 
   return (
     <div>
@@ -270,16 +280,27 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-4 flex-wrap text-xs">
-          <span className={`flex items-center gap-1.5 font-medium ${deadlineColor}`}>
-            <Calendar className="w-3.5 h-3.5" />
-            Deadline: {format(new Date(project.deadline), 'MMM d, yyyy')}
-            {isPast(new Date(project.deadline)) && (
-              <span className="ml-1 text-red-500 font-semibold">· Overdue</span>
-            )}
+        <div className="flex items-center gap-3 flex-wrap text-xs">
+          <span
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold shadow-sm ${deadlineHighlight.pillClass}`}
+          >
+            <Calendar className="w-4 h-4 flex-shrink-0" />
+            <span>
+              Deadline: {format(new Date(project.deadline), 'MMM d, yyyy')}
+              {deadlineHighlight.statusLabel && (
+                <span className="ml-1.5 font-bold">· {deadlineHighlight.statusLabel}</span>
+              )}
+            </span>
           </span>
           <span className="text-slate-400">{tasks.length} tasks</span>
-          <span className="text-slate-400">{members.length} members</span>
+          <span className="text-slate-400 flex items-center gap-1">
+            <Users className="w-3.5 h-3.5" />
+            {formatTeamLabel(project)}
+          </span>
+          <span className="text-slate-400 flex items-center gap-1">
+            <DollarSign className="w-3.5 h-3.5" />
+            {formatCurrency(expenseSummary?.total ?? 0, expenseSummary?.currency ?? 'USD')} spent
+          </span>
           {typeof project.createdBy === 'object' && project.createdBy && (
             <span className="text-slate-400">
               Owner: {(project.createdBy as User).name}
@@ -336,6 +357,8 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      <ProjectExpensesPanel projectId={project._id} canManage={canManage} />
 
       {/* Main grid */}
       <div className="grid lg:grid-cols-3 gap-4">
@@ -520,10 +543,10 @@ export default function ProjectDetailPage() {
           {/* Members */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                 <Users className="w-4 h-4" />
-                Members
-                <span className="text-slate-400 font-normal">{members.length}</span>
+                Team
+                <span className="text-slate-400 font-normal">{formatTeamLabel(project)}</span>
                 {syncAvailable && (
                   <span
                     className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"
@@ -550,37 +573,63 @@ export default function ProjectDetailPage() {
               )}
             </div>
             <div className="card divide-y divide-slate-100 dark:divide-slate-700/50">
-              {members.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-4">No members yet</p>
+              {teamBreakdown.totalPeople === 0 && !leadUser ? (
+                <p className="text-xs text-slate-400 text-center py-4">No team members yet</p>
               ) : (
-                members.map((m) => (
-                  <div key={m._id} className="flex items-center gap-3 px-4 py-3">
-                    <Avatar name={m.name} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
-                        {m.name}
+                <>
+                  {leadUser && (
+                    <div className="px-4 py-2 bg-brand-50/50 dark:bg-brand-950/20">
+                      <p className="text-[10px] uppercase tracking-wide text-brand-600 dark:text-brand-400 font-semibold mb-2">
+                        Project lead (PM)
                       </p>
-                      <p className="text-xs text-slate-400 capitalize flex items-center gap-1.5">
-                        <span>{m.role?.replace('_', ' ')}</span>
-                        {m._id === projectOwnerId && (
-                          <span className="text-purple-600 dark:text-purple-400 font-medium">· Owner</span>
-                        )}
-                        {m._id === projectLeadId && (
-                          <span className="text-brand-600 dark:text-brand-400 font-medium">· Lead</span>
-                        )}
-                      </p>
+                      <div className="flex items-center gap-3 pb-2">
+                        <Avatar name={leadUser.name} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                            {leadUser.name}
+                          </p>
+                          <p className="text-xs text-slate-400">Project Manager</p>
+                        </div>
+                      </div>
                     </div>
-                    {canRemoveProjectMember(project, m, me) && (
-                      <button
-                        className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                        onClick={() => setRemovingMember(m)}
-                        title="Remove member"
-                      >
-                        <UserMinus className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))
+                  )}
+                  {membersOnly.length === 0 ? (
+                    leadUser ? null : (
+                      <p className="text-xs text-slate-400 text-center py-4">No members yet</p>
+                    )
+                  ) : (
+                    <>
+                      <p className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+                        Members ({membersOnly.length})
+                      </p>
+                      {membersOnly.map((m) => (
+                        <div key={m._id} className="flex items-center gap-3 px-4 py-3">
+                          <Avatar name={m.name} size="sm" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                              {m.name}
+                            </p>
+                            <p className="text-xs text-slate-400 capitalize flex items-center gap-1.5">
+                              <span>{m.role?.replace('_', ' ')}</span>
+                              {m._id === projectOwnerId && (
+                                <span className="text-purple-600 dark:text-purple-400 font-medium">· Owner</span>
+                              )}
+                            </p>
+                          </div>
+                          {canRemoveProjectMember(project, m, me) && (
+                            <button
+                              className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                              onClick={() => setRemovingMember(m)}
+                              title="Remove member"
+                            >
+                              <UserMinus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
               )}
             </div>
           </div>

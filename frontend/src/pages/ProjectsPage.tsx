@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Edit2, ChevronRight, Calendar, Search,
-  ChevronLeft, ChevronRight as ChevronRightIcon,
+  ChevronLeft, ChevronRight as ChevronRightIcon, Users, DollarSign,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, differenceInDays, addDays, startOfDay } from 'date-fns';
@@ -14,6 +14,7 @@ import {
   ProjectProgressRing,
 } from '../components/shared';
 import { CopyProjectIdButton } from '../components/projects/CopyProjectIdButton';
+import { formatCurrency, formatTeamLabel } from '../utils/projectTeam';
 import type { Project, User, TeamGroup, Task } from '../types';
 
 const PAGE_SIZE = 12;
@@ -46,6 +47,11 @@ export default function ProjectsPage() {
   const { data: tasks = [] } = useQuery({
     queryKey: ['tasks'],
     queryFn: () => tasksApi.getAll().then((r) => r.data),
+  });
+
+  const { data: expenseTotals = {} } = useQuery({
+    queryKey: ['expense-totals'],
+    queryFn: () => projectsApi.getExpenseTotals(),
   });
 
   const taskStatsByProject = useMemo(() => {
@@ -257,6 +263,18 @@ export default function ProjectsPage() {
                 {project.name}
               </h3>
               {project.description && <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mb-3">{project.description}</p>}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400 mb-3">
+                <span className="inline-flex items-center gap-1">
+                  <Users className="w-3 h-3" />
+                  {formatTeamLabel(project)}
+                </span>
+                {(expenseTotals[project._id] ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                    <DollarSign className="w-3 h-3" />
+                    {formatCurrency(expenseTotals[project._id])} spent
+                  </span>
+                )}
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <div className={`flex items-center gap-1.5 text-xs font-medium ${deadlineColor(project.deadline)}`}>
                   <Calendar className="w-3.5 h-3.5" />

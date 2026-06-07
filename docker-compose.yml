@@ -42,7 +42,8 @@ services:
       backend:
         condition: service_healthy
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:3001/api}
+      VITE_API_URL: ${VITE_API_URL:-/api}
+      VITE_PROXY_TARGET: http://backend:3001
       VITE_APP_NAME: SmartPM
     ports:
       - "3000:3000"

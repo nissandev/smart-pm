@@ -47,18 +47,39 @@ export default function DashboardPage() {
   const isDark = theme === 'dark';
   const tooltipProps = getTooltipProps(isDark);
 
-  const { data: summary, isLoading } = useQuery({
+  const { data: summary, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getSummary().then((r) => r.data),
+    retry: 2,
   });
 
   if (isLoading) return <LoadingScreen />;
+
+  if (isError || !summary) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Dashboard" subtitle="Overview of your workspace" />
+        <div className="card p-10 text-center max-w-md mx-auto">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+          <p className="text-sm font-medium text-slate-900 dark:text-white mb-1">
+            Could not load dashboard
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+            The API may still be starting. Check that the backend is running on port 3001.
+          </p>
+          <button type="button" className="btn-primary text-sm" onClick={() => refetch()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const {
     projects, tasks, tasksByPriority, taskStatusDistribution,
     completionTrend, projectSummary, upcomingDeadlines, highPriorityTasks,
     memberWorkload, teamProductivity, recentActivity,
-  } = summary!;
+  } = summary;
 
   const kpis = [
     { label: 'Total Projects', value: projects.total, icon: FolderKanban, color: 'text-brand-600', bg: 'bg-brand-50 dark:bg-brand-900/20' },

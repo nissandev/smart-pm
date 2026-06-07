@@ -9,6 +9,7 @@ import { GroupsModule } from './groups/groups.module';
 import { ActivityModule } from './activity/activity.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ExpensesModule } from './expenses/expenses.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -35,6 +36,7 @@ import { HealthController } from './health.controller';
     ActivityModule,
     DashboardModule,
     NotificationsModule,
+    ExpensesModule,
   ],
   controllers: [HealthController],
 })

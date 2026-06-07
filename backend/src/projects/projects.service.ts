@@ -19,6 +19,7 @@ import { NotificationType } from '../notifications/notification.schema';
 import { Task, TaskDocument } from '../tasks/task.schema';
 import { UsersService } from '../users/users.service';
 import { GroupsService } from '../groups/groups.service';
+import { ExpensesService } from '../expenses/expenses.service';
 import { isProjectLead } from './project-lead.util';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class ProjectsService {
     private notifications: NotificationsService,
     private usersService: UsersService,
     private groupsService: GroupsService,
+    private expensesService: ExpensesService,
   ) {}
 
   async create(dto: CreateProjectDto, user: UserDocument): Promise<ProjectDocument> {
@@ -178,15 +180,16 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('Project not found');
     this.checkLeadOrAdmin(project, user);
 
-    // PRD §03: deleting a project cascades to all its tasks
+    // PRD §03: deleting a project cascades to all its tasks and expenses
     const deleted = await this.taskModel.deleteMany({ project: project._id });
+    const deletedExpenses = await this.expensesService.deleteByProject(project._id);
 
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.PROJECT_DELETED,
       entityType: 'project',
       entityId: project._id,
-      description: `Project "${project.name}" was deleted (and ${deleted.deletedCount} task${deleted.deletedCount === 1 ? '' : 's'})`,
+      description: `Project "${project.name}" was deleted (and ${deleted.deletedCount} task${deleted.deletedCount === 1 ? '' : 's'}${deletedExpenses > 0 ? `, ${deletedExpenses} expense${deletedExpenses === 1 ? '' : 's'}` : ''})`,
     });
 
     await project.deleteOne();

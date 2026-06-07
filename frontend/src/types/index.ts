@@ -42,6 +42,30 @@ export interface Project {
   updatedAt: string;
 }
 
+// ── Project Expense ───────────────────────────────────────────
+export type ExpenseCategory = 'Hosting' | 'AI / API' | 'Tools' | 'Domain' | 'Other';
+
+export interface ProjectExpense {
+  _id: string;
+  project: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  currency: string;
+  date: string;
+  notes?: string;
+  createdBy: User | string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExpenseSummary {
+  total: number;
+  currency: string;
+  count: number;
+  byCategory: { category: ExpenseCategory; total: number }[];
+}
+
 // ── Task ──────────────────────────────────────────────────────
 export type TaskPriority = 'High' | 'Medium' | 'Low';
 export type TaskStatus = 'Todo' | 'In Progress' | 'Completed';
