@@ -12,14 +12,14 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('register')
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 2, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register a new user' })
   register(@Body() dto: CreateUserDto) {
     return this.authService.register(dto);
   }
 
   @Post('login')
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Login and get JWT token' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

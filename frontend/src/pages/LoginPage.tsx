@@ -6,6 +6,8 @@ import { authApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import AuthHeroPanel, { AuthMobileHeroStrip } from '../components/auth/AuthHeroPanel';
 
+const SHOW_DEMO = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO === 'true';
+
 const DEMO_USERS = [
   { label: 'Admin', email: 'admin@smartpm.dev', password: 'admin123', color: 'bg-purple-500', ring: 'ring-purple-500/30' },
   { label: 'Project Manager', email: 'pm@smartpm.dev', password: 'pm123456', color: 'bg-blue-500', ring: 'ring-blue-500/30' },
@@ -73,28 +75,30 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              <div className="mb-6">
-                <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-3 uppercase tracking-widest">
-                  One-click demo
-                </p>
-                <div className="grid gap-2">
-                  {DEMO_USERS.map((demo) => (
-                    <button
-                      key={demo.label}
-                      type="button"
-                      disabled={!!demoLoading || loading}
-                      onClick={() => handleDemoLogin(demo)}
-                      className={`group flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 hover:border-brand-300 dark:hover:border-brand-600 hover:bg-brand-50/80 dark:hover:bg-brand-950/40 transition-all text-left disabled:opacity-50 ring-0 hover:ring-2 ${demo.ring}`}
-                    >
-                      <span className={`w-2.5 h-2.5 rounded-full ${demo.color} flex-shrink-0 shadow-sm`} />
-                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex-1">
-                        {demoLoading === demo.label ? `Signing in…` : demo.label}
-                      </span>
-                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
-                    </button>
-                  ))}
+              {SHOW_DEMO && (
+                <div className="mb-6">
+                  <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-3 uppercase tracking-widest">
+                    One-click demo
+                  </p>
+                  <div className="grid gap-2">
+                    {DEMO_USERS.map((demo) => (
+                      <button
+                        key={demo.label}
+                        type="button"
+                        disabled={!!demoLoading || loading}
+                        onClick={() => handleDemoLogin(demo)}
+                        className={`group flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 hover:border-brand-300 dark:hover:border-brand-600 hover:bg-brand-50/80 dark:hover:bg-brand-950/40 transition-all text-left disabled:opacity-50 ring-0 hover:ring-2 ${demo.ring}`}
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-full ${demo.color} flex-shrink-0 shadow-sm`} />
+                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex-1">
+                          {demoLoading === demo.label ? `Signing in…` : demo.label}
+                        </span>
+                        <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">

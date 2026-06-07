@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useDeferredValue } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Search, Mail, LayoutGrid, BarChart2, Filter, Plus, Edit2, Trash2, UsersRound } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -32,6 +32,7 @@ export default function TeamPage() {
   const isAdmin = me?.role === 'admin';
 
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [tab, setTab] = useState<'members' | 'groups' | 'workload'>('members');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState<TeamGroup | null>(null);
@@ -44,9 +45,11 @@ export default function TeamPage() {
   const [wlPriority, setWlPriority] = useState('');
 
   const { data: users = [], isLoading: usersLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: ({ signal }) => usersApi.getAll(signal),
+    queryKey: ['users', deferredSearch],
+    queryFn: ({ signal }) =>
+      usersApi.getAll(deferredSearch.trim() ? { search: deferredSearch.trim() } : undefined, signal),
     enabled: isAdmin,
+    placeholderData: keepPreviousData,
   });
 
   const isPM = me?.role === 'project_manager';
@@ -114,15 +117,9 @@ export default function TeamPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: ({ signal }) => projectsApi.getAll(signal),
+    queryFn: ({ signal }) => projectsApi.getAll(undefined, signal),
     enabled: isAdminOrPM,
   });
-
-  const filtered = users.filter(
-    (u) =>
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase()),
-  );
 
   /** PM team = members admin assigned in groups this PM leads. */
   const pmTeamMembers = useMemo(() => {
@@ -133,10 +130,9 @@ export default function TeamPage() {
         byId.set(m._id, m);
       }
     }
+    const term = search.toLowerCase();
     return Array.from(byId.values()).filter(
-      (u) =>
-        u.name.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase()),
+      (u) => !term || u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term),
     );
   }, [groups, isPM, search]);
 
@@ -191,8 +187,8 @@ export default function TeamPage() {
           isAdmin
             ? `${users.length} member${users.length !== 1 ? 's' : ''}`
             : isPM
-            ? `${pmTeamMembers.length} team member${pmTeamMembers.length !== 1 ? 's' : ''}`
-            : 'Team workload'
+              ? `${pmTeamMembers.length} team member${pmTeamMembers.length !== 1 ? 's' : ''}`
+              : 'Team workload'
         }
         action={
           isAdmin ? (
@@ -298,7 +294,7 @@ export default function TeamPage() {
               Your team members from groups you lead ({groups.map((g) => g.name).join(', ')}).
             </p>
           )}
-          {(isAdmin ? filtered : pmTeamMembers).length === 0 ? (
+          {(isAdmin ? users : pmTeamMembers).length === 0 ? (
             <EmptyState
               title={isPM ? 'No team members yet' : 'No members found'}
               description={
@@ -309,7 +305,7 @@ export default function TeamPage() {
             />
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {(isAdmin ? filtered : pmTeamMembers).map((u) => (
+              {(isAdmin ? users : pmTeamMembers).map((u) => (
                 <MemberCard key={u._id} user={u} isMe={u._id === me?._id} />
               ))}
             </div>

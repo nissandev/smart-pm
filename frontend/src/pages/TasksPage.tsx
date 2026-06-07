@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, memo, lazy, Suspense, useRef } from 'react';
+import { useState, useMemo, useEffect, useCallback, memo, lazy, Suspense, useRef, useDeferredValue } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -7,7 +7,7 @@ import {
   Search, ArrowUpDown, LayoutGrid, List, Upload,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { format, isPast, isWithinInterval, addDays, startOfDay } from 'date-fns';
+import { format, isPast } from 'date-fns';
 import { tasksApi, projectsApi, usersApi, groupsApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -27,7 +27,6 @@ const BulkTaskImportModal = lazy(() =>
   import('../components/tasks/BulkTaskImportModal').then((m) => ({ default: m.BulkTaskImportModal })),
 );
 
-const PRIORITY_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 type ViewMode = 'board' | 'list';
 
 export default function TasksPage() {
@@ -57,12 +56,15 @@ export default function TasksPage() {
   // ── Virtual list container ref ─────────────────────────────────
   const listContainerRef = useRef<HTMLDivElement>(null);
 
+  // Debounce search — defer API call until user stops typing
+  const deferredSearch = useDeferredValue(search);
+
   // Scroll list to top whenever filters change
   useEffect(() => {
     listContainerRef.current?.scrollTo({ top: 0 });
-  }, [statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter, deadlineFilter, search, sortBy]);
+  }, [statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter, deadlineFilter, deferredSearch, sortBy]);
 
-  // Build server-side filter params
+  // All filters go to the server — no client-side filtering
   const serverFilters = useMemo(() => {
     const f: Record<string, string> = {};
     if (viewMode === 'list' && statusFilter) f.status = statusFilter;
@@ -70,8 +72,11 @@ export default function TasksPage() {
     if (projectFilter) f.project = projectFilter;
     if (assigneeFilter) f.assignedTo = assigneeFilter;
     if (createdByFilter) f.createdBy = createdByFilter;
+    if (deferredSearch.trim()) f.search = deferredSearch.trim();
+    if (deadlineFilter) f.deadline = deadlineFilter;
+    if (sortBy) f.sort = sortBy;
     return f;
-  }, [viewMode, statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter]);
+  }, [viewMode, statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter, deferredSearch, deadlineFilter, sortBy]);
 
   // ── Queries ────────────────────────────────────────────────────
   const { data: tasks = [], isLoading, isFetching } = useQuery({
@@ -82,7 +87,7 @@ export default function TasksPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: ({ signal }) => projectsApi.getAll(signal),
+    queryFn: ({ signal }) => projectsApi.getAll(undefined, signal),
   });
 
   const { data: groups = [] } = useQuery({
@@ -94,7 +99,7 @@ export default function TasksPage() {
   const isAdmin = me?.role === 'admin';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: ({ signal }) => usersApi.getAll(signal),
+    queryFn: ({ signal }) => usersApi.getAll(undefined, signal),
     enabled: isAdmin,
   });
 
@@ -155,46 +160,8 @@ export default function TasksPage() {
   const handleEditTask = useCallback((task: Task) => setEditing(task), []);
   const handleDeleteTask = useCallback((task: Task) => setDeleting(task), []);
 
-  // ── Client-side filter + sort ──────────────────────────────────
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    const now = startOfDay(new Date());
-    const in7days = addDays(now, 7);
-
-    let base = q
-      ? tasks.filter(
-          (t) =>
-            t.title.toLowerCase().includes(q) ||
-            t.description?.toLowerCase().includes(q) ||
-            (t.assignedTo as User)?.name?.toLowerCase().includes(q),
-        )
-      : tasks;
-
-    if (deadlineFilter === 'overdue') {
-      base = base.filter(
-        (t) => t.status !== 'Completed' && startOfDay(new Date(t.dueDate)) < now,
-      );
-    } else if (deadlineFilter === 'upcoming') {
-      base = base.filter(
-        (t) =>
-          t.status !== 'Completed' &&
-          isWithinInterval(startOfDay(new Date(t.dueDate)), { start: now, end: in7days }),
-      );
-    }
-
-    return [...base].sort((a, b) => {
-      if (sortBy === 'deadline')
-        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-      if (sortBy === 'priority')
-        return (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3);
-      if (sortBy === 'updated')
-        return (
-          new Date(b.updatedAt || b.createdAt).getTime() -
-          new Date(a.updatedAt || a.createdAt).getTime()
-        );
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-  }, [tasks, search, sortBy, deadlineFilter]);
+  // All filtering/sorting is now server-side — tasks array is already the final result
+  const filtered = tasks;
 
   // ── Virtual list — renders only visible rows, handles 200+ tasks ──
   const rowVirtualizer = useVirtualizer({

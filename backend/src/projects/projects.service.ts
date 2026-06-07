@@ -117,21 +117,50 @@ export class ProjectsService {
 
   async findAll(
     user: UserDocument,
+    filters?: Record<string, string | undefined>,
     page?: string,
     limit?: string,
   ): Promise<PaginatedResult<ProjectDocument>> {
-    const query = buildProjectScopeFilter(user);
+    const conditions: Record<string, unknown>[] = [buildProjectScopeFilter(user)];
+
+    if (filters?.search?.trim()) {
+      const escaped = filters.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      conditions.push({ name: new RegExp(escaped, 'i') });
+    }
+
+    if (filters?.status) {
+      conditions.push({ status: filters.status });
+    }
+
+    if (filters?.deadline) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      if (filters.deadline === 'overdue') {
+        conditions.push({ deadline: { $lt: now }, status: { $ne: 'Completed' } });
+      } else if (filters.deadline === 'upcoming') {
+        const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        conditions.push({ deadline: { $gte: now, $lte: in7 }, status: { $ne: 'Completed' } });
+      }
+    }
+
+    if (filters?.createdBy && user.role === UserRole.ADMIN) {
+      conditions.push({ createdBy: filters.createdBy });
+    }
+
+    const query = conditions.length === 1 ? conditions[0] : { $and: conditions };
     const pagination = parsePagination(page, limit);
-    const baseQuery = this.projectModel
-      .find(query)
-      .populate('createdBy', 'name email role')
-      .populate('leadId', 'name email role')
-      .populate({ path: 'members', model: 'User', select: 'name email role' })
-      .populate({ path: 'teamId', select: 'name' })
-      .sort({ createdAt: -1 });
 
     const [data, total] = await Promise.all([
-      baseQuery.skip(pagination.skip).limit(pagination.limit).exec(),
+      this.projectModel
+        .find(query)
+        .populate('createdBy', 'name email role')
+        .populate('leadId', 'name email role')
+        .populate({ path: 'members', model: 'User', select: 'name email role' })
+        .populate({ path: 'teamId', select: 'name' })
+        .sort({ createdAt: -1 })
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .exec(),
       this.projectModel.countDocuments(query).exec(),
     ]);
     return toPaginatedResult(data, total, pagination);

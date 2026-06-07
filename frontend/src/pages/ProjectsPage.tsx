@@ -1,12 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useMemo, useEffect, useDeferredValue } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Trash2, Edit2, ChevronRight, Calendar, Search,
   ChevronLeft, ChevronRight as ChevronRightIcon, Users, DollarSign,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { format, isPast, differenceInDays, addDays, startOfDay } from 'date-fns';
+import { format, isPast, differenceInDays } from 'date-fns';
 import { projectsApi, usersApi, groupsApi, type CreateProjectInput } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -34,14 +34,30 @@ export default function ProjectsPage() {
   const [createdByFilter, setCreatedByFilter] = useState('');
   const [page, setPage] = useState(1);
 
+  // PRD §09: "Created by (Admin view)" project filter — admin-only.
+  const isAdmin = user?.role === 'admin';
+  const canPickGroup = user?.role === 'admin' || user?.role === 'project_manager';
+
+  const deferredSearch = useDeferredValue(search);
+
+  const serverFilters = useMemo(() => {
+    const f: Record<string, string> = {};
+    if (deferredSearch.trim()) f.search = deferredSearch.trim();
+    if (statusFilter) f.status = statusFilter;
+    if (deadlineFilter) f.deadline = deadlineFilter;
+    if (createdByFilter && isAdmin) f.createdBy = createdByFilter;
+    return f;
+  }, [deferredSearch, statusFilter, deadlineFilter, createdByFilter, isAdmin]);
+
   // Reset to page 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, deadlineFilter, createdByFilter]);
+  }, [serverFilters]);
 
   const { data: projects = [], isLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: ({ signal }) => projectsApi.getAll(signal),
+    queryKey: ['projects', serverFilters],
+    queryFn: ({ signal }) => projectsApi.getAll(serverFilters, signal),
+    placeholderData: keepPreviousData,
   });
 
   const { data: taskStatsByProject = {} } = useQuery({
@@ -53,13 +69,9 @@ export default function ProjectsPage() {
     queryKey: ['expense-totals'],
     queryFn: ({ signal }) => projectsApi.getExpenseTotals(signal),
   });
-
-  // PRD §09: "Created by (Admin view)" project filter — admin-only.
-  const isAdmin = user?.role === 'admin';
-  const canPickGroup = user?.role === 'admin' || user?.role === 'project_manager';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: ({ signal }) => usersApi.getAll(signal),
+    queryFn: ({ signal }) => usersApi.getAll(undefined, signal),
     enabled: isAdmin,
   });
 
@@ -87,33 +99,11 @@ export default function ProjectsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete project'),
   });
 
-  const filtered = useMemo(() => {
-    const today = startOfDay(new Date());
-    const in7days = addDays(today, 7);
-    return projects.filter((p) => {
-      const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
-      const matchesStatus = !statusFilter || p.status === statusFilter;
-      let matchesDeadline = true;
-      if (deadlineFilter === 'overdue') {
-        matchesDeadline = p.status !== 'Completed' && isPast(new Date(p.deadline));
-      } else if (deadlineFilter === 'upcoming') {
-        const due = startOfDay(new Date(p.deadline));
-        matchesDeadline = p.status !== 'Completed' && due >= today && due <= in7days;
-      }
-      let matchesCreator = true;
-      if (createdByFilter && isAdmin) {
-        const creatorId = typeof p.createdBy === 'object' ? (p.createdBy as User)._id : p.createdBy;
-        matchesCreator = creatorId === createdByFilter;
-      }
-      return matchesSearch && matchesStatus && matchesDeadline && matchesCreator;
-    });
-  }, [projects, search, statusFilter, deadlineFilter, createdByFilter, isAdmin]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(projects.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const from = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
-  const to = Math.min(safePage * PAGE_SIZE, filtered.length);
+  const paginated = projects.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const from = projects.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const to = Math.min(safePage * PAGE_SIZE, projects.length);
 
   const deadlineColor = (d: string) => {
     const days = differenceInDays(new Date(d), new Date());
@@ -129,11 +119,7 @@ export default function ProjectsPage() {
     <div>
       <PageHeader
         title="Projects"
-        subtitle={
-          filtered.length === projects.length
-            ? `${projects.length} project${projects.length !== 1 ? 's' : ''}`
-            : `${filtered.length} of ${projects.length} project${projects.length !== 1 ? 's' : ''}`
-        }
+        subtitle={`${projects.length} project${projects.length !== 1 ? 's' : ''}`}
         action={
           canCreate ? (
             <button className="btn-primary flex items-center gap-2" onClick={() => setShowForm(true)}>
@@ -193,13 +179,13 @@ export default function ProjectsPage() {
       </div>
 
       {projects.length === 0 ? (
-        <EmptyState
-          title="No projects yet"
-          description="Create your first project to get started"
-          action={canCreate ? <button className="btn-primary" onClick={() => setShowForm(true)}>Create Project</button> : undefined}
-        />
-      ) : filtered.length === 0 ? (
-        <EmptyState title="No matches" description="Try adjusting your search or filter" />
+        Object.keys(serverFilters).length > 0
+          ? <EmptyState title="No matches" description="Try adjusting your search or filter" />
+          : <EmptyState
+              title="No projects yet"
+              description="Create your first project to get started"
+              action={canCreate ? <button className="btn-primary" onClick={() => setShowForm(true)}>Create Project</button> : undefined}
+            />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {paginated.map((project) => {
@@ -288,10 +274,10 @@ export default function ProjectsPage() {
       )}
 
       {/* Pagination */}
-      {filtered.length > PAGE_SIZE && (
+      {projects.length > PAGE_SIZE && (
         <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Showing {from}–{to} of {filtered.length}
+            Showing {from}–{to} of {projects.length}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -363,7 +349,7 @@ function ProjectFormModal({ project, isAdmin, groups, canPickGroup, onClose, onS
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: ({ signal }) => usersApi.getAll(signal),
+    queryFn: ({ signal }) => usersApi.getAll(undefined, signal),
     enabled: isAdmin && !project,
   });
   const projectManagers = allUsers.filter((u) => u.role === 'project_manager');

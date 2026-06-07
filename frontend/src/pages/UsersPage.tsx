@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useDeferredValue } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Plus, Trash2, Edit2, Search, Shield, User as UserIcon, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -27,14 +27,17 @@ export default function UsersPage() {
   const { user: me } = useAuthStore();
 
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: ({ signal }) => usersApi.getAll(signal),
+    queryKey: ['users', deferredSearch],
+    queryFn: ({ signal }) =>
+      usersApi.getAll(deferredSearch.trim() ? { search: deferredSearch.trim() } : undefined, signal),
+    placeholderData: keepPreviousData,
   });
 
   const roleMutation = useMutation({
@@ -49,13 +52,8 @@ export default function UsersPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete user'),
   });
 
-  const filtered = users.filter((u) => {
-    const matchSearch =
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase());
-    const matchRole = roleFilter === 'all' || u.role === roleFilter;
-    return matchSearch && matchRole;
-  });
+  // Role filter is client-side only (small result set after server-side search)
+  const filtered = roleFilter === 'all' ? users : users.filter((u) => u.role === roleFilter);
 
   const stats = {
     total: users.length,

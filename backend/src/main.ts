@@ -80,5 +80,16 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`🚀 Backend running on http://localhost:${port}/api`);
   console.log(`📚 Swagger docs at http://localhost:${port}/api/docs`);
+
+  // Graceful shutdown — drain in-flight requests before exiting
+  const shutdown = async (signal: string) => {
+    console.log(`\n${signal} received — shutting down gracefully…`);
+    await app.close();
+    console.log('Server closed.');
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 bootstrap();

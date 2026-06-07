@@ -28,10 +28,14 @@ export class ProjectsController {
   @Get()
   findAll(
     @CurrentUser() user: UserDocument,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('deadline') deadline?: string,
+    @Query('createdBy') createdBy?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.projectsService.findAll(user, page, limit);
+    return this.projectsService.findAll(user, { search, status, deadline, createdBy }, page, limit);
   }
 
   @Get('stats')

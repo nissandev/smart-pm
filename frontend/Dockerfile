@@ -37,8 +37,16 @@ FROM nginx:alpine AS production
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# We serve the SPA on 3000 so the Dokploy domain config can use the
-# same port number it suggests for Node-style apps.
+# Run nginx as non-root user
+RUN addgroup -g 1001 -S nginx-app && adduser -S nginx-app -u 1001 -G nginx-app \
+  && chown -R nginx-app:nginx-app /usr/share/nginx/html \
+  && chown -R nginx-app:nginx-app /var/cache/nginx \
+  && chown -R nginx-app:nginx-app /var/log/nginx \
+  && touch /var/run/nginx.pid \
+  && chown nginx-app:nginx-app /var/run/nginx.pid
+
+USER nginx-app
+
 EXPOSE 3000
 
 CMD ["nginx", "-g", "daemon off;"]

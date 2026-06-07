@@ -29,13 +29,17 @@ export class UsersService {
     return user.save();
   }
 
-  async findAll(page?: string, limit?: string): Promise<PaginatedResult<UserDocument>> {
+  async findAll(page?: string, limit?: string, search?: string): Promise<PaginatedResult<UserDocument>> {
     const pagination = parsePagination(page, limit);
-    const query = this.userModel.find().select('-password').sort({ createdAt: -1 });
-
+    const filter: Record<string, unknown> = {};
+    if (search?.trim()) {
+      const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      filter.$or = [{ name: regex }, { email: regex }];
+    }
     const [data, total] = await Promise.all([
-      query.skip(pagination.skip).limit(pagination.limit).exec(),
-      this.userModel.countDocuments().exec(),
+      this.userModel.find(filter).select('-password').sort({ createdAt: -1 }).skip(pagination.skip).limit(pagination.limit).exec(),
+      this.userModel.countDocuments(filter).exec(),
     ]);
     return toPaginatedResult(data, total, pagination);
   }

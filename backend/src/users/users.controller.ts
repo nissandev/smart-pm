@@ -18,8 +18,12 @@ export class UsersController {
 
   @Roles(UserRole.ADMIN)
   @Get()
-  findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.usersService.findAll(page, limit);
+  findAll(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.usersService.findAll(page, limit, search);
   }
 
   @Roles(UserRole.ADMIN)

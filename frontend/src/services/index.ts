@@ -38,8 +38,8 @@ export const authApi = {
 
 // ── Users ─────────────────────────────────────────────────────
 export const usersApi = {
-  getAll: (signal?: AbortSignal) =>
-    api.get<User[]>('/users', { params: { limit: LIST_LIMIT }, signal }).then(unwrapList),
+  getAll: (filters?: Record<string, string>, signal?: AbortSignal) =>
+    api.get<User[]>('/users', { params: { limit: LIST_LIMIT, ...filters }, signal }).then(unwrapList),
   create: (data: { name: string; email: string; password: string; role?: string }) =>
     api.post<User>('/users', data),
   getById: (id: string, signal?: AbortSignal) => api.get<User>(`/users/${id}`, { signal }),
@@ -78,8 +78,8 @@ export const groupsApi = {
 };
 
 export const projectsApi = {
-  getAll: (signal?: AbortSignal) =>
-    api.get<Project[]>('/projects', { params: { limit: LIST_LIMIT }, signal }).then(unwrapList),
+  getAll: (filters?: Record<string, string>, signal?: AbortSignal) =>
+    api.get<Project[]>('/projects', { params: { limit: LIST_LIMIT, ...filters }, signal }).then(unwrapList),
   getById: (id: string, signal?: AbortSignal) => api.get<Project>(`/projects/${id}`, { signal }),
   getStats: (signal?: AbortSignal) => api.get('/projects/stats', { signal }),
   getTaskCounts: (signal?: AbortSignal) =>

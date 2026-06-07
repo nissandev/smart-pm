@@ -5,7 +5,7 @@ import { queryKeys } from '@/lib/query-keys';
 export function useProjects() {
   return useQuery({
     queryKey: queryKeys.projects.all,
-    queryFn: ({ signal }) => projectsApi.getAll(signal),
+    queryFn: ({ signal }) => projectsApi.getAll(undefined, signal),
   });
 }
 

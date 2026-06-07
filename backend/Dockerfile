@@ -37,6 +37,11 @@ RUN npm install --only=production && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 
+# Run as non-root user for security
+RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001 -G nodejs
+RUN chown -R nestjs:nodejs /app
+USER nestjs
+
 EXPOSE 3001
 
 CMD ["node", "dist/main"]

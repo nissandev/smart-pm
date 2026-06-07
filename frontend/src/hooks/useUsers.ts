@@ -6,7 +6,7 @@ import { queryKeys } from '@/lib/query-keys';
 export function useUsers(enabled = true) {
   return useQuery({
     queryKey: queryKeys.users.all,
-    queryFn: ({ signal }) => usersApi.getAll(signal),
+    queryFn: ({ signal }) => usersApi.getAll(undefined, signal),
     enabled,
   });
 }

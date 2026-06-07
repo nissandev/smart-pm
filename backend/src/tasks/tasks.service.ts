@@ -125,18 +125,47 @@ export class TasksService {
       conditions.push({ createdBy: filters.createdBy });
     }
 
+    // Full-text search across title and description
+    if (filters?.search?.trim()) {
+      const escaped = filters.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      conditions.push({ $or: [{ title: regex }, { description: regex }] });
+    }
+
+    // Deadline filter
+    if (filters?.deadline) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      if (filters.deadline === 'overdue') {
+        conditions.push({ dueDate: { $lt: now }, status: { $ne: TaskStatus.COMPLETED } });
+      } else if (filters.deadline === 'upcoming') {
+        const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        conditions.push({ dueDate: { $gte: now, $lte: in7 }, status: { $ne: TaskStatus.COMPLETED } });
+      }
+    }
+
     const query = conditions.length === 1 ? conditions[0] : { $and: conditions };
 
-    const pagination = parsePagination(page, limit);
-    const baseQuery = this.taskModel
-      .find(query)
-      .populate('project', 'name leadId members createdBy')
-      .populate('assignedTo', 'name email avatar')
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 });
+    // Sort mapping
+    const sortMap: Record<string, Record<string, 1 | -1>> = {
+      newest:   { createdAt: -1 },
+      deadline: { dueDate: 1 },
+      priority: { priority: 1 },
+      updated:  { updatedAt: -1 },
+    };
+    const sortOrder = sortMap[filters?.sort ?? ''] ?? { createdAt: -1 };
 
+    const pagination = parsePagination(page, limit);
     const [data, total] = await Promise.all([
-      baseQuery.skip(pagination.skip).limit(pagination.limit).exec(),
+      this.taskModel
+        .find(query)
+        .populate('project', 'name leadId members createdBy')
+        .populate('assignedTo', 'name email avatar')
+        .populate('createdBy', 'name email')
+        .sort(sortOrder)
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .exec(),
       this.taskModel.countDocuments(query).exec(),
     ]);
     return toPaginatedResult(data, total, pagination);

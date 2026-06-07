@@ -15,11 +15,11 @@ import { UsersModule } from '../users/users.module';
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => {
         const secret = config.get<string>('JWT_SECRET');
-        if (!secret && config.get<string>('NODE_ENV') === 'production') {
-          throw new Error('JWT_SECRET environment variable is required in production');
+        if (!secret) {
+          throw new Error('JWT_SECRET environment variable is required');
         }
         return {
-          secret: secret || 'dev_only_secret_do_not_use_in_production',
+          secret,
           signOptions: {
             expiresIn: (config.get<string>('JWT_EXPIRES_IN') || '7d') as `${number}d`,
           },
