@@ -13,7 +13,7 @@ export default function Layout() {
   }, [pathname]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-[#0f0f17]">
+    <div className="flex h-screen overflow-hidden bg-[#f0f2f8] dark:bg-[#09091a]">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="flex-1 flex flex-col overflow-hidden">

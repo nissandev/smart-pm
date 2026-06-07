@@ -89,19 +89,42 @@ export default function DashboardPage() {
       label: isMember ? 'My Projects' : 'Total Projects',
       value: projects.total,
       icon: FolderKanban,
-      color: 'text-brand-600',
-      bg: 'bg-brand-50 dark:bg-brand-900/20',
+      color: 'text-brand-600 dark:text-brand-400',
+      bg: 'bg-brand-50 dark:bg-brand-500/15',
+      accent: 'from-brand-500/10 to-transparent',
     },
     {
       label: isMember ? 'My Tasks' : 'Total Tasks',
       value: tasks.total,
       icon: CheckSquare,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50 dark:bg-blue-900/20',
+      color: 'text-blue-600 dark:text-blue-400',
+      bg: 'bg-blue-50 dark:bg-blue-500/15',
+      accent: 'from-blue-500/10 to-transparent',
     },
-    { label: 'Completed', value: tasks.completed, icon: Clock, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-    { label: 'Pending', value: tasks.pending, icon: ListTodo, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20' },
-    { label: 'Overdue', value: tasks.overdue, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20' },
+    {
+      label: 'Completed',
+      value: tasks.completed,
+      icon: Clock,
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-emerald-50 dark:bg-emerald-500/15',
+      accent: 'from-emerald-500/10 to-transparent',
+    },
+    {
+      label: 'Pending',
+      value: tasks.pending,
+      icon: ListTodo,
+      color: 'text-amber-600 dark:text-amber-400',
+      bg: 'bg-amber-50 dark:bg-amber-500/15',
+      accent: 'from-amber-500/10 to-transparent',
+    },
+    {
+      label: 'Overdue',
+      value: tasks.overdue,
+      icon: AlertCircle,
+      color: 'text-red-600 dark:text-red-400',
+      bg: 'bg-red-50 dark:bg-red-500/15',
+      accent: 'from-red-500/10 to-transparent',
+    },
   ];
 
   const subtitle = isMember
@@ -116,15 +139,16 @@ export default function DashboardPage() {
 
       {/* KPI Cards — 5 cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {kpis.map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className="card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-              <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center`}>
-                <Icon className={`w-4 h-4 ${color}`} />
+        {kpis.map(({ label, value, icon: Icon, color, bg, accent }) => (
+          <div key={label} className="card p-5 relative overflow-hidden">
+            <div className={`absolute inset-x-0 top-0 h-16 bg-gradient-to-b ${accent} pointer-events-none`} />
+            <div className="flex items-center justify-between mb-4">
+              <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center`}>
+                <Icon className={`w-[18px] h-[18px] ${color}`} />
               </div>
             </div>
-            <p className="text-3xl font-bold text-slate-900 dark:text-white">{value}</p>
+            <p className="font-heading text-[28px] font-bold text-slate-900 dark:text-white leading-none mb-1">{value}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{label}</p>
           </div>
         ))}
       </div>

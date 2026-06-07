@@ -109,12 +109,12 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between mb-6">
+    <div className="flex items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{title}</h1>
-        {subtitle && <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">{title}</h1>
+        {subtitle && <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
-      {action && <div>{action}</div>}
+      {action && <div className="flex-shrink-0">{action}</div>}
     </div>
   );
 }
@@ -187,7 +187,7 @@ export function ProjectProgressRing({
 export function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
   const s = { sm: 'w-7 h-7 text-xs', md: 'w-9 h-9 text-sm', lg: 'w-12 h-12 text-base' }[size];
   return (
-    <div className={`${s} rounded-full bg-brand-600 flex items-center justify-center text-white font-semibold flex-shrink-0`}>
+    <div className={`${s} rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white font-semibold flex-shrink-0 shadow-sm`}>
       {name?.[0]?.toUpperCase()}
     </div>
   );
