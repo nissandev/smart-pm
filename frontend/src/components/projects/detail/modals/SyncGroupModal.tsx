@@ -32,7 +32,7 @@ export function SyncGroupModal({
 
   const { data: preview, isLoading, isFetching } = useQuery({
     queryKey: queryKeys.projects.syncPreview(projectId, teamId),
-    queryFn: () => projectsApi.getSyncFromGroupPreview(projectId, teamId).then((r) => r.data),
+    queryFn: ({ signal }) => projectsApi.getSyncFromGroupPreview(projectId, teamId, signal).then((r) => r.data),
     enabled: !!teamId,
   });
 

@@ -45,7 +45,7 @@ export default function TeamPage() {
 
   const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll(),
+    queryFn: ({ signal }) => usersApi.getAll(signal),
     enabled: isAdmin,
   });
 
@@ -53,7 +53,7 @@ export default function TeamPage() {
 
   const { data: groups = [], isLoading: groupsLoading } = useQuery({
     queryKey: ['groups'],
-    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
     enabled: (isAdmin && tab === 'groups') || (isPM && tab === 'members'),
   });
 
@@ -101,20 +101,20 @@ export default function TeamPage() {
 
   const { data: allTasks = [], isLoading: tasksLoading, isFetching: tasksFetching } = useQuery({
     queryKey: ['tasks', 'workload', wlFilters],
-    queryFn: () => tasksApi.getAll(wlFilters),
+    queryFn: ({ signal }) => tasksApi.getAll(wlFilters, signal),
     enabled: isAdminOrPM,
     placeholderData: keepPreviousData,
   });
 
   const { data: dashSummary } = useQuery({
     queryKey: ['dashboard'],
-    queryFn: () => dashboardApi.getSummary().then((r) => r.data),
+    queryFn: ({ signal }) => dashboardApi.getSummary(signal).then((r) => r.data),
     enabled: isAdminOrPM,
   });
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll(),
+    queryFn: ({ signal }) => projectsApi.getAll(signal),
     enabled: isAdminOrPM,
   });
 

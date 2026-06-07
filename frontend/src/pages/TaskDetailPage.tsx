@@ -31,7 +31,7 @@ export default function TaskDetailPage() {
 
   const { data: task, isLoading } = useQuery({
     queryKey: ['task', id],
-    queryFn: () => tasksApi.getById(id!).then((r) => r.data),
+    queryFn: ({ signal }) => tasksApi.getById(id!, signal).then((r) => r.data),
     enabled: !!id,
   });
 

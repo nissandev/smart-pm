@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, memo, lazy, Suspense, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Plus, Trash2, Edit2, ChevronRight, Calendar,
-  Search, ArrowUpDown, ChevronLeft, LayoutGrid, List, Upload,
+  Search, ArrowUpDown, LayoutGrid, List, Upload,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, isWithinInterval, addDays, startOfDay } from 'date-fns';
@@ -17,11 +18,16 @@ import type { Task, TaskPriority, TaskStatus, Project, User, TeamGroup } from '.
 import { canChangeTaskStatus, getTaskEditMode } from '../utils/taskPermissions';
 import { invalidateTaskQueries } from '../utils/invalidateTaskQueries';
 import { TaskKanbanBoard } from '../components/tasks/TaskKanbanBoard';
-import { BulkTaskImportModal } from '../components/tasks/BulkTaskImportModal';
-import { TaskFormModal } from '../components/tasks/TaskFormModal';
+
+// Lazy-load heavy modals — not needed until user opens them
+const TaskFormModal = lazy(() =>
+  import('../components/tasks/TaskFormModal').then((m) => ({ default: m.TaskFormModal })),
+);
+const BulkTaskImportModal = lazy(() =>
+  import('../components/tasks/BulkTaskImportModal').then((m) => ({ default: m.BulkTaskImportModal })),
+);
 
 const PRIORITY_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
-const PAGE_SIZE = 10;
 type ViewMode = 'board' | 'list';
 
 export default function TasksPage() {
@@ -40,7 +46,6 @@ export default function TasksPage() {
   const [deadlineFilter, setDeadlineFilter] = useState('');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
-  const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('board');
 
   // ── Modal state ────────────────────────────────────────────────
@@ -49,12 +54,15 @@ export default function TasksPage() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [deleting, setDeleting] = useState<Task | null>(null);
 
-  // Reset to page 1 whenever any filter or sort changes
+  // ── Virtual list container ref ─────────────────────────────────
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll list to top whenever filters change
   useEffect(() => {
-    setPage(1);
+    listContainerRef.current?.scrollTo({ top: 0 });
   }, [statusFilter, priorityFilter, projectFilter, assigneeFilter, createdByFilter, deadlineFilter, search, sortBy]);
 
-  // Build server-side filter params (status, priority, project, assignee, createdBy)
+  // Build server-side filter params
   const serverFilters = useMemo(() => {
     const f: Record<string, string> = {};
     if (viewMode === 'list' && statusFilter) f.status = statusFilter;
@@ -68,32 +76,30 @@ export default function TasksPage() {
   // ── Queries ────────────────────────────────────────────────────
   const { data: tasks = [], isLoading, isFetching } = useQuery({
     queryKey: ['tasks', serverFilters],
-    queryFn: () => tasksApi.getAll(serverFilters),
+    queryFn: ({ signal }) => tasksApi.getAll(serverFilters, signal),
     placeholderData: keepPreviousData,
   });
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll(),
+    queryFn: ({ signal }) => projectsApi.getAll(signal),
   });
 
   const { data: groups = [] } = useQuery({
     queryKey: ['groups'],
-    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
     enabled: canUseGroups,
   });
 
-  // Build the assignee dropdown from users (admins) or, for PM, members of their projects.
   const isAdmin = me?.role === 'admin';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll(),
+    queryFn: ({ signal }) => usersApi.getAll(signal),
     enabled: isAdmin,
   });
 
   const assigneeOptions: User[] = useMemo(() => {
     if (isAdmin) return allUsers as User[];
-    // PM / member: combine members of accessible projects (deduplicated)
     const seen = new Map<string, User>();
     for (const p of projects as Project[]) {
       for (const m of (p.members || []) as User[]) {
@@ -115,7 +121,41 @@ export default function TasksPage() {
       toast.error(e?.response?.data?.message || 'Failed to delete task'),
   });
 
-  // ── Client-side search + sort ──────────────────────────────────
+  // ── Stable callbacks ───────────────────────────────────────────
+  const handleStatusChange = useCallback(
+    (task: Task, status: TaskStatus, opts?: { silent?: boolean }) => {
+      const queryKey = ['tasks', serverFilters] as const;
+      const previous = qc.getQueryData<Task[]>(queryKey);
+      qc.setQueryData<Task[]>(queryKey, (old) =>
+        old?.map((t) => (t._id === task._id ? { ...t, status } : t)),
+      );
+      tasksApi
+        .update(task._id, { status })
+        .then(() => {
+          invalidateTaskQueries(qc);
+          if (!opts?.silent) toast.success('Status updated');
+        })
+        .catch((e: any) => {
+          if (previous) qc.setQueryData(queryKey, previous);
+          toast.error(e?.response?.data?.message || 'Failed to update status');
+        });
+    },
+    [qc, serverFilters],
+  );
+
+  const handleKanbanStatusChange = useCallback(
+    (task: Task, status: TaskStatus) => handleStatusChange(task, status, { silent: true }),
+    [handleStatusChange],
+  );
+
+  const handleNavigateTask = useCallback(
+    (task: Task) => navigate(`/tasks/${task._id}`),
+    [navigate],
+  );
+  const handleEditTask = useCallback((task: Task) => setEditing(task), []);
+  const handleDeleteTask = useCallback((task: Task) => setDeleting(task), []);
+
+  // ── Client-side filter + sort ──────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     const now = startOfDay(new Date());
@@ -154,34 +194,15 @@ export default function TasksPage() {
         );
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [tasks, search, sortBy]);
+  }, [tasks, search, sortBy, deadlineFilter]);
 
-  // ── Pagination ─────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const from = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
-  const to = Math.min(safePage * PAGE_SIZE, filtered.length);
-
-  const handleStatusChange = (task: Task, status: TaskStatus, opts?: { silent?: boolean }) => {
-    const queryKey = ['tasks', serverFilters] as const;
-    const previous = qc.getQueryData<Task[]>(queryKey);
-
-    qc.setQueryData<Task[]>(queryKey, (old) =>
-      old?.map((t) => (t._id === task._id ? { ...t, status } : t)),
-    );
-
-    tasksApi
-      .update(task._id, { status })
-      .then(() => {
-        invalidateTaskQueries(qc);
-        if (!opts?.silent) toast.success('Status updated');
-      })
-      .catch((e: any) => {
-        if (previous) qc.setQueryData(queryKey, previous);
-        toast.error(e?.response?.data?.message || 'Failed to update status');
-      });
-  };
+  // ── Virtual list — renders only visible rows, handles 200+ tasks ──
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => listContainerRef.current,
+    estimateSize: () => 72,
+    overscan: 8,
+  });
 
   // ── Initial load ───────────────────────────────────────────────
   if (isLoading) return <LoadingScreen />;
@@ -304,7 +325,6 @@ export default function TasksPage() {
             </option>
           ))}
         </select>
-        {/* PRD §09: "Created by" filter for admin */}
         {isAdmin && (
           <select
             className="input w-44"
@@ -358,106 +378,77 @@ export default function TasksPage() {
           me={me}
           sortBy={sortBy}
           isFetching={isFetching}
-          onStatusChange={(task, status) => handleStatusChange(task, status, { silent: true })}
-          onEdit={setEditing}
-          onDelete={setDeleting}
-          onNavigate={(task) => navigate(`/tasks/${task._id}`)}
+          onStatusChange={handleKanbanStatusChange}
+          onEdit={handleEditTask}
+          onDelete={handleDeleteTask}
+          onNavigate={handleNavigateTask}
         />
       ) : (
-        <div>
-          {/* Relative wrapper for loading overlay */}
-          <div className="relative">
-            {/* Fetching overlay — keeps rows visible, shows spinner on top */}
-            {isFetching && (
-              <div className="absolute inset-0 z-10 flex items-start justify-center pt-10 rounded-xl bg-white/40 dark:bg-slate-900/40 backdrop-blur-[1px]">
-                <Spinner size="md" />
-              </div>
-            )}
-
-            <div className={`space-y-2 transition-opacity duration-150 ${isFetching ? 'opacity-50' : 'opacity-100'}`}>
-              {paginated.map((task) => (
-                <TaskRow
-                  key={task._id}
-                  task={task}
-                  me={me}
-                  onEdit={() => setEditing(task)}
-                  onDelete={() => setDeleting(task)}
-                  onClick={() => navigate(`/tasks/${task._id}`)}
-                  onStatusChange={(status) => handleStatusChange(task, status)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Pagination */}
-          {filtered.length > PAGE_SIZE && (
-            <div className="flex items-center justify-between mt-4 px-1">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Showing <span className="font-medium text-slate-700 dark:text-slate-200">{from}–{to}</span> of{' '}
-                <span className="font-medium text-slate-700 dark:text-slate-200">{filtered.length}</span> tasks
-              </p>
-              <div className="flex items-center gap-1">
-                <button
-                  className="p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={safePage === 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
-                  .reduce<(number | 'ellipsis')[]>((acc, p, idx, arr) => {
-                    if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('ellipsis');
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((item, idx) =>
-                    item === 'ellipsis' ? (
-                      <span key={`e${idx}`} className="px-1 text-slate-400 text-sm">…</span>
-                    ) : (
-                      <button
-                        key={item}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
-                          item === safePage
-                            ? 'bg-brand-600 text-white'
-                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                        onClick={() => setPage(item as number)}
-                      >
-                        {item}
-                      </button>
-                    ),
-                  )}
-
-                <button
-                  className="p-2 rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={safePage === totalPages}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+        /* Virtual list — only visible rows are in the DOM regardless of total count */
+        <div className="relative">
+          {isFetching && (
+            <div className="absolute top-3 right-3 z-10">
+              <Spinner size="sm" />
             </div>
           )}
+
+          <div
+            ref={listContainerRef}
+            className={`overflow-auto transition-opacity duration-150 ${isFetching ? 'opacity-60' : ''}`}
+            style={{ height: 'calc(100vh - 260px)', minHeight: '400px' }}
+          >
+            <div
+              style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const task = filtered[virtualRow.index];
+                return (
+                  <div
+                    key={task._id}
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                      paddingBottom: '8px',
+                    }}
+                  >
+                    <TaskRow
+                      task={task}
+                      me={me}
+                      onEdit={handleEditTask}
+                      onDelete={handleDeleteTask}
+                      onClick={handleNavigateTask}
+                      onStatusChange={handleStatusChange}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Modals */}
+      {/* Modals — lazy-loaded, zero cost until first open */}
       {(showCreate || editing) && (
-        <TaskFormModal
-          scope="global"
-          task={editing}
-          projects={projects}
-          groups={groups}
-          delegateOnly={editing ? getTaskEditMode(editing, me) === 'delegate' : false}
-          onClose={() => { setShowCreate(false); setEditing(null); }}
-          onSuccess={() => {
-            invalidateTaskQueries(qc);
-            setShowCreate(false);
-            setEditing(null);
-          }}
-        />
+        <Suspense fallback={null}>
+          <TaskFormModal
+            scope="global"
+            task={editing}
+            projects={projects}
+            groups={groups}
+            delegateOnly={editing ? getTaskEditMode(editing, me) === 'delegate' : false}
+            onClose={() => { setShowCreate(false); setEditing(null); }}
+            onSuccess={() => {
+              invalidateTaskQueries(qc);
+              setShowCreate(false);
+              setEditing(null);
+            }}
+          />
+        </Suspense>
       )}
 
       {deleting && (
@@ -471,25 +462,32 @@ export default function TasksPage() {
       )}
 
       {showBulkImport && (
-        <BulkTaskImportModal
-          onClose={() => setShowBulkImport(false)}
-          onSuccess={() => invalidateTaskQueries(qc)}
-        />
+        <Suspense fallback={null}>
+          <BulkTaskImportModal
+            onClose={() => setShowBulkImport(false)}
+            onSuccess={() => invalidateTaskQueries(qc)}
+          />
+        </Suspense>
       )}
     </div>
   );
 }
 
 // ── TaskRow ───────────────────────────────────────────────────────
-function TaskRow({
-  task, me, onEdit, onDelete, onClick, onStatusChange,
+const TaskRow = memo(function TaskRow({
+  task,
+  me,
+  onEdit,
+  onDelete,
+  onClick,
+  onStatusChange,
 }: {
   task: Task;
   me: User | null | undefined;
-  onEdit: () => void;
-  onDelete: () => void;
-  onClick: () => void;
-  onStatusChange: (status: TaskStatus) => void;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
+  onClick: (task: Task) => void;
+  onStatusChange: (task: Task, status: TaskStatus) => void;
 }) {
   const editMode = getTaskEditMode(task, me);
   const statusEditable = canChangeTaskStatus(task, me);
@@ -500,7 +498,7 @@ function TaskRow({
   return (
     <div
       className="card px-4 py-3 flex items-center gap-3 hover:shadow-md transition-shadow cursor-pointer group"
-      onClick={onClick}
+      onClick={() => onClick(task)}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -529,7 +527,6 @@ function TaskRow({
         className="flex items-center gap-2 flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Inline status select */}
         <select
           className={`text-xs border rounded-full px-2.5 py-0.5 font-medium focus:outline-none focus:ring-1 focus:ring-brand-500 transition-colors appearance-none ${
             statusEditable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
@@ -542,7 +539,7 @@ function TaskRow({
           }`}
           value={task.status}
           disabled={!statusEditable}
-          onChange={(e) => onStatusChange(e.target.value as TaskStatus)}
+          onChange={(e) => onStatusChange(task, e.target.value as TaskStatus)}
         >
           <option value="Todo">Todo</option>
           <option value="In Progress">In Progress</option>
@@ -559,7 +556,7 @@ function TaskRow({
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg"
-              onClick={onEdit}
+              onClick={() => onEdit(task)}
               title={editMode === 'delegate' ? 'Reassign task' : 'Edit task'}
             >
               <Edit2 className="w-3.5 h-3.5" />
@@ -567,7 +564,7 @@ function TaskRow({
             {editMode === 'full' && (
               <button
                 className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
-                onClick={onDelete}
+                onClick={() => onDelete(task)}
                 title="Delete task"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -580,4 +577,4 @@ function TaskRow({
       </div>
     </div>
   );
-}
+});

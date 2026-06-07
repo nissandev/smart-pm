@@ -5,7 +5,7 @@ import { queryKeys } from '@/lib/query-keys';
 export function useGroups(enabled = true) {
   return useQuery({
     queryKey: queryKeys.groups.all,
-    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
     enabled,
   });
 }

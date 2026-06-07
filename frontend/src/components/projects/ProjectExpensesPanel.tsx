@@ -38,12 +38,12 @@ export function ProjectExpensesPanel({
 
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ['expenses', projectId],
-    queryFn: () => expensesApi.getAll(projectId),
+    queryFn: ({ signal }) => expensesApi.getAll(projectId, signal),
   });
 
   const { data: summary } = useQuery({
     queryKey: ['expenses-summary', projectId],
-    queryFn: () => expensesApi.getSummary(projectId),
+    queryFn: ({ signal }) => expensesApi.getSummary(projectId, signal),
   });
 
   const invalidate = () => {

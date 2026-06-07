@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -73,7 +73,6 @@ const STATUS_FLOW: Record<TaskStatus, { next?: TaskStatus; prev?: TaskStatus; ne
 
 const PRIORITY_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 
-/** md breakpoint — below = mobile tab layout, at/above = multi-column board */
 function useIsMobileBoard() {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : false,
@@ -162,11 +161,11 @@ export function TaskKanbanBoard({
     [onStatusChange, isMobile],
   );
 
-  const handleDragStart = (e: DragStartEvent) => {
+  const handleDragStart = useCallback((e: DragStartEvent) => {
     setActiveId(String(e.active.id));
-  };
+  }, []);
 
-  const handleDragOver = (e: DragOverEvent) => {
+  const handleDragOver = useCallback((e: DragOverEvent) => {
     const overId = e.over?.id;
     if (!overId) {
       setOverColumn(null);
@@ -179,9 +178,9 @@ export function TaskKanbanBoard({
     }
     const task = tasks.find((t) => t._id === id);
     setOverColumn(task?.status ?? null);
-  };
+  }, [tasks]);
 
-  const handleDragEnd = (e: DragEndEvent) => {
+  const handleDragEnd = useCallback((e: DragEndEvent) => {
     setActiveId(null);
     setOverColumn(null);
     const { active, over } = e;
@@ -203,12 +202,12 @@ export function TaskKanbanBoard({
     if (targetStatus && targetStatus !== task.status) {
       handleStatusChange(task, targetStatus);
     }
-  };
+  }, [tasks, me, handleStatusChange]);
 
-  const handleDragCancel = () => {
+  const handleDragCancel = useCallback(() => {
     setActiveId(null);
     setOverColumn(null);
-  };
+  }, []);
 
   const visibleColumns = isMobile
     ? COLUMNS.filter((c) => c.id === mobileColumn)
@@ -328,7 +327,8 @@ export function TaskKanbanBoard({
   );
 }
 
-function KanbanColumn({
+// Memoized: only re-renders when its column's tasks, drag state, or callbacks change
+const KanbanColumn = memo(function KanbanColumn({
   column,
   tasks,
   me,
@@ -445,9 +445,10 @@ function KanbanColumn({
       </div>
     </div>
   );
-}
+});
 
-function DraggableKanbanCard({
+// Memoized: only re-renders when this specific task's data changes
+const DraggableKanbanCard = memo(function DraggableKanbanCard({
   task,
   me,
   onEdit,
@@ -486,7 +487,7 @@ function DraggableKanbanCard({
       />
     </div>
   );
-}
+});
 
 function MobileStatusActions({
   task,
@@ -532,7 +533,8 @@ function MobileStatusActions({
   );
 }
 
-function KanbanCard({
+// Memoized: only re-renders when task data or drag state changes
+const KanbanCard = memo(function KanbanCard({
   task,
   me,
   isDragging,
@@ -654,4 +656,4 @@ function KanbanCard({
       </div>
     </div>
   );
-}
+});

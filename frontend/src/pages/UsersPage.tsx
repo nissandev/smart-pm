@@ -34,7 +34,7 @@ export default function UsersPage() {
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll(),
+    queryFn: ({ signal }) => usersApi.getAll(signal),
   });
 
   const roleMutation = useMutation({

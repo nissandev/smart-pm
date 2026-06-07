@@ -5,20 +5,20 @@ import { queryKeys } from '@/lib/query-keys';
 export function useProjects() {
   return useQuery({
     queryKey: queryKeys.projects.all,
-    queryFn: () => projectsApi.getAll(),
+    queryFn: ({ signal }) => projectsApi.getAll(signal),
   });
 }
 
 export function useProjectTaskCounts() {
   return useQuery({
     queryKey: queryKeys.projects.taskCounts,
-    queryFn: () => projectsApi.getTaskCounts(),
+    queryFn: ({ signal }) => projectsApi.getTaskCounts(signal),
   });
 }
 
 export function useProjectExpenseTotals() {
   return useQuery({
     queryKey: queryKeys.projects.expenseTotals,
-    queryFn: () => projectsApi.getExpenseTotals(),
+    queryFn: ({ signal }) => projectsApi.getExpenseTotals(signal),
   });
 }

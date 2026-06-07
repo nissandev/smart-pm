@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { captureException } from '@/lib/sentry';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -15,6 +16,7 @@ export function fileUrl(path: string): string {
 export const api = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 30_000,
 });
 
 // Attach JWT token to every request
@@ -28,12 +30,28 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (error) => {
+    // Intentional request cancellations (component unmount / query key change) are not errors
+    if (axios.isCancel(error)) return Promise.reject(error);
+
+    const status = error.response?.status;
     const isLoginRequest = error.config?.url?.includes('/auth/login');
-    if (error.response?.status === 401 && !isLoginRequest) {
+
+    if (status === 401 && !isLoginRequest) {
       localStorage.removeItem('smartpm_token');
       localStorage.removeItem('smartpm_user');
       window.location.href = '/login';
+      return Promise.reject(error);
     }
+
+    // Report unexpected server errors and network failures to Sentry
+    if (!status || status >= 500) {
+      captureException(error, {
+        url: error.config?.url,
+        method: error.config?.method,
+        status,
+      });
+    }
+
     return Promise.reject(error);
   },
 );

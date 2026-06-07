@@ -11,7 +11,7 @@ import {
   LoadingScreen, PageHeader, EmptyState, Avatar,
   PriorityBadge, TaskStatusBadge,
 } from '../components/shared';
-import type { Task, TaskPriority, TaskStatus } from '../types';
+import type { MyWorkStats, Task, TaskPriority, TaskStatus } from '../types';
 
 type Section = 'overdue' | 'dueSoon' | 'stagnant';
 
@@ -54,16 +54,16 @@ export default function MyWorkPage() {
     ...(assigneeFilter ? { assignee: assigneeFilter } : {}),
   };
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching } = useQuery<MyWorkStats>({
     queryKey: ['my-work', filters],
-    queryFn: () => dashboardApi.getMyWork(filters).then((r) => r.data),
+    queryFn: ({ signal }) => dashboardApi.getMyWork(filters, signal).then((r) => r.data),
     placeholderData: keepPreviousData,
     refetchOnMount: 'always',
   });
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading || !data) return <LoadingScreen />;
 
-  const { counts, overdue, dueSoon, stagnant, filters: options } = data!;
+  const { counts, overdue, dueSoon, stagnant, filters: options } = data;
   const tasksBySection: Record<Section, Task[]> = { overdue, dueSoon, stagnant };
   const activeTasks = tasksBySection[activeSection];
 

@@ -41,17 +41,17 @@ export default function ProjectsPage() {
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll(),
+    queryFn: ({ signal }) => projectsApi.getAll(signal),
   });
 
   const { data: taskStatsByProject = {} } = useQuery({
     queryKey: ['project-task-counts'],
-    queryFn: () => projectsApi.getTaskCounts(),
+    queryFn: ({ signal }) => projectsApi.getTaskCounts(signal),
   });
 
   const { data: expenseTotals = {} } = useQuery({
     queryKey: ['expense-totals'],
-    queryFn: () => projectsApi.getExpenseTotals(),
+    queryFn: ({ signal }) => projectsApi.getExpenseTotals(signal),
   });
 
   // PRD §09: "Created by (Admin view)" project filter — admin-only.
@@ -59,13 +59,13 @@ export default function ProjectsPage() {
   const canPickGroup = user?.role === 'admin' || user?.role === 'project_manager';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll(),
+    queryFn: ({ signal }) => usersApi.getAll(signal),
     enabled: isAdmin,
   });
 
   const { data: groups = [] } = useQuery({
     queryKey: ['groups'],
-    queryFn: () => groupsApi.getAll().then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
     enabled: canPickGroup,
   });
 
@@ -363,7 +363,7 @@ function ProjectFormModal({ project, isAdmin, groups, canPickGroup, onClose, onS
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll(),
+    queryFn: ({ signal }) => usersApi.getAll(signal),
     enabled: isAdmin && !project,
   });
   const projectManagers = allUsers.filter((u) => u.role === 'project_manager');

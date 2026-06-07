@@ -12,7 +12,9 @@
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/utilities": "^3.2.2",
+    "@sentry/react": "^8.55.2",
     "@tanstack/react-query": "^5.0.0",
+    "@tanstack/react-virtual": "^3.14.2",
     "axios": "^1.6.0",
     "date-fns": "^3.0.0",
     "lucide-react": "^0.400.0",
@@ -21,6 +23,7 @@
     "react-hot-toast": "^2.4.1",
     "react-router-dom": "^6.20.0",
     "recharts": "^2.10.0",
+    "web-vitals": "^5.3.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

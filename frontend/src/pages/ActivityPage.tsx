@@ -29,12 +29,12 @@ export default function ActivityPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll(),
+    queryFn: ({ signal }) => projectsApi.getAll(signal),
   });
 
   const { data, isLoading } = useQuery({
     queryKey: ['activity', page, projectFilter],
-    queryFn: () => activityApi.getAll(page, 20, projectFilter || undefined).then((r) => r.data),
+    queryFn: ({ signal }) => activityApi.getAll(page, 20, projectFilter || undefined, signal).then((r) => r.data),
   });
 
   const activities = data?.data ?? [];

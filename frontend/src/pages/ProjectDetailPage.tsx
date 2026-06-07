@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
@@ -8,16 +8,13 @@ import { useAuthStore } from '@/store/authStore';
 import { LoadingScreen, ConfirmModal } from '@/components/shared';
 import { ProjectExpensesPanel } from '@/components/projects/ProjectExpensesPanel';
 import {
-  AddMemberModal,
-  EditProjectModal,
   ProjectDetailHeader,
   ProjectDetailTabs,
   ProjectTasksPanel,
   ProjectTeamSidebar,
-  SyncGroupModal,
   type ProjectDetailTab,
 } from '@/components/projects/detail';
-import { TaskFormModal } from '@/components/tasks/TaskFormModal';
+
 import { useGroups, useProjectActivity, useProjectExpenseSummary, useProjectSyncPreview } from '@/hooks';
 import { queryKeys } from '@/lib/query-keys';
 import { toastApiError } from '@/lib/api-error';
@@ -25,6 +22,19 @@ import { invalidateProjectQueries, invalidateTaskQueries } from '@/lib/invalidat
 import { canManageProject } from '@/utils/projectPermissions';
 import { getTaskEditMode } from '@/utils/taskPermissions';
 import type { Project, Task, TaskStatus, TeamGroup, User } from '@/types';
+
+const EditProjectModal = lazy(() =>
+  import('@/components/projects/detail/modals/EditProjectModal').then((m) => ({ default: m.EditProjectModal }))
+);
+const SyncGroupModal = lazy(() =>
+  import('@/components/projects/detail/modals/SyncGroupModal').then((m) => ({ default: m.SyncGroupModal }))
+);
+const AddMemberModal = lazy(() =>
+  import('@/components/projects/detail/modals/AddMemberModal').then((m) => ({ default: m.AddMemberModal }))
+);
+const TaskFormModal = lazy(() =>
+  import('@/components/tasks/TaskFormModal').then((m) => ({ default: m.TaskFormModal }))
+);
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,13 +60,13 @@ export default function ProjectDetailPage() {
 
   const { data: project, isLoading } = useQuery({
     queryKey: queryKeys.projects.detail(id!),
-    queryFn: () => projectsApi.getById(id!).then((r) => r.data),
+    queryFn: ({ signal }) => projectsApi.getById(id!, signal).then((r) => r.data),
     enabled: !!id,
   });
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: queryKeys.tasks.list({ project: id! }),
-    queryFn: () => tasksApi.getAll({ project: id! }),
+    queryFn: ({ signal }) => tasksApi.getAll({ project: id! }, signal),
     enabled: !!id,
   });
 
@@ -260,12 +270,14 @@ export default function ProjectDetailPage() {
       </div>
 
       {showEditProject && (
-        <EditProjectModal
-          project={project}
-          loading={updateProjectMutation.isPending}
-          onClose={() => setShowEditProject(false)}
-          onSave={(data) => updateProjectMutation.mutate(data)}
-        />
+        <Suspense fallback={null}>
+          <EditProjectModal
+            project={project}
+            loading={updateProjectMutation.isPending}
+            onClose={() => setShowEditProject(false)}
+            onSave={(data) => updateProjectMutation.mutate(data)}
+          />
+        </Suspense>
       )}
 
       {showDeleteProject && (
@@ -280,62 +292,69 @@ export default function ProjectDetailPage() {
       )}
 
       {showSyncGroup && (
-        <SyncGroupModal
-          projectId={id}
-          projectTeamId={linkedTeamId}
-          linkedTeamName={linkedTeamName}
-          groups={groupsForSync}
-          onClose={() => setShowSyncGroup(false)}
-          onSuccess={() => {
-            refreshProject();
-            setShowSyncGroup(false);
-          }}
-        />
+        <Suspense fallback={null}>
+          <SyncGroupModal
+            projectId={id}
+            projectTeamId={linkedTeamId}
+            linkedTeamName={linkedTeamName}
+            groups={groupsForSync}
+            onClose={() => setShowSyncGroup(false)}
+            onSuccess={() => {
+              refreshProject();
+              setShowSyncGroup(false);
+            }}
+          />
+        </Suspense>
       )}
 
       {showAddMember && (
-        <AddMemberModal
-          projectId={id}
-          isAdmin={me?.role === 'admin'}
-          canAssignLead={canManage}
-          groups={groups}
-          existingMemberIds={members.map((m) => m._id)}
-          onClose={() => setShowAddMember(false)}
-          onSuccess={() => {
-            refreshProject();
-            setShowAddMember(false);
-          }}
-        />
+        <Suspense fallback={null}>
+          <AddMemberModal
+            projectId={id}
+            isAdmin={me?.role === 'admin'}
+            canAssignLead={canManage}
+            groups={groups}
+            existingMemberIds={members.map((m) => m._id)}
+            onClose={() => setShowAddMember(false)}
+            onSuccess={() => {
+              refreshProject();
+              setShowAddMember(false);
+            }}
+          />
+        </Suspense>
       )}
 
-      {showCreateTask && (
-        <TaskFormModal
-          scope="project"
-          projectId={id}
-          members={members}
-          groups={groups}
-          onClose={() => setShowCreateTask(false)}
-          onSuccess={() => {
-            invalidateTaskQueries(qc, { projectId: id });
-            setShowCreateTask(false);
-          }}
-        />
-      )}
-
-      {editingTask && (
-        <TaskFormModal
-          scope="project"
-          projectId={id}
-          members={members}
-          groups={groups}
-          task={editingTask}
-          delegateOnly={getTaskEditMode(editingTask, me) === 'delegate'}
-          onClose={() => setEditingTask(null)}
-          onSuccess={() => {
-            invalidateTaskQueries(qc, { projectId: id });
-            setEditingTask(null);
-          }}
-        />
+      {(showCreateTask || editingTask) && (
+        <Suspense fallback={null}>
+          {showCreateTask && (
+            <TaskFormModal
+              scope="project"
+              projectId={id}
+              members={members}
+              groups={groups}
+              onClose={() => setShowCreateTask(false)}
+              onSuccess={() => {
+                invalidateTaskQueries(qc, { projectId: id });
+                setShowCreateTask(false);
+              }}
+            />
+          )}
+          {editingTask && (
+            <TaskFormModal
+              scope="project"
+              projectId={id}
+              members={members}
+              groups={groups}
+              task={editingTask}
+              delegateOnly={getTaskEditMode(editingTask, me) === 'delegate'}
+              onClose={() => setEditingTask(null)}
+              onSuccess={() => {
+                invalidateTaskQueries(qc, { projectId: id });
+                setEditingTask(null);
+              }}
+            />
+          )}
+        </Suspense>
       )}
 
       {deletingTask && (

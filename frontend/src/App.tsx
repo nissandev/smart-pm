@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { PageLoader } from '@/components/ui/PageLoader';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import Layout from '@/components/layout/Layout';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import MyWorkRoute from '@/components/auth/MyWorkRoute';
@@ -19,7 +20,11 @@ const MemberDetailPage = lazy(() => import('@/pages/MemberDetailPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
 
 function LazyPage({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
 }
 
 export default function App() {

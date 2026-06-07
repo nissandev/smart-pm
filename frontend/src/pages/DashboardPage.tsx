@@ -44,12 +44,15 @@ function getTooltipProps(isDark: boolean) {
 
 export default function DashboardPage() {
   const theme = useAuthStore((s) => s.theme);
+  const user = useAuthStore((s) => s.user);
+  const isMember = user?.role === 'member';
+  const canViewTeamInsights = user?.role === 'admin' || user?.role === 'project_manager';
   const isDark = theme === 'dark';
   const tooltipProps = getTooltipProps(isDark);
 
   const { data: summary, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard'],
-    queryFn: () => dashboardApi.getSummary().then((r) => r.data),
+    queryFn: ({ signal }) => dashboardApi.getSummary(signal).then((r) => r.data),
     retry: 2,
   });
 
@@ -82,16 +85,34 @@ export default function DashboardPage() {
   } = summary;
 
   const kpis = [
-    { label: 'Total Projects', value: projects.total, icon: FolderKanban, color: 'text-brand-600', bg: 'bg-brand-50 dark:bg-brand-900/20' },
-    { label: 'Total Tasks', value: tasks.total, icon: CheckSquare, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    {
+      label: isMember ? 'My Projects' : 'Total Projects',
+      value: projects.total,
+      icon: FolderKanban,
+      color: 'text-brand-600',
+      bg: 'bg-brand-50 dark:bg-brand-900/20',
+    },
+    {
+      label: isMember ? 'My Tasks' : 'Total Tasks',
+      value: tasks.total,
+      icon: CheckSquare,
+      color: 'text-blue-600',
+      bg: 'bg-blue-50 dark:bg-blue-900/20',
+    },
     { label: 'Completed', value: tasks.completed, icon: Clock, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
     { label: 'Pending', value: tasks.pending, icon: ListTodo, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/20' },
     { label: 'Overdue', value: tasks.overdue, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20' },
   ];
 
+  const subtitle = isMember
+    ? 'Overview of your assigned work'
+    : user?.role === 'project_manager'
+      ? 'Overview of projects you lead'
+      : 'Overview of your workspace';
+
   return (
     <div className="space-y-5">
-      <PageHeader title="Dashboard" subtitle="Overview of your workspace" />
+      <PageHeader title="Dashboard" subtitle={subtitle} />
 
       {/* KPI Cards — 5 cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -158,9 +179,11 @@ export default function DashboardPage() {
       {completionTrend?.length > 0 && (
         <div className="card p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-brand-500" /> Project Progress Trend
+            <TrendingUp className="w-4 h-4 text-brand-500" /> {isMember ? 'My Progress Trend' : 'Project Progress Trend'}
           </h2>
-          <p className="text-xs text-slate-400 mb-4">Tasks created vs. completed by week</p>
+          <p className="text-xs text-slate-400 mb-4">
+            {isMember ? 'Your tasks created vs. completed by week' : 'Tasks created vs. completed by week'}
+          </p>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={completionTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
               <CartesianGrid stroke={isDark ? '#1f2937' : '#e2e8f0'} strokeDasharray="3 3" vertical={false} />
@@ -183,7 +206,7 @@ export default function DashboardPage() {
       {projectSummary?.length > 0 && (
         <div className="card p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-brand-500" /> Project Progress
+            <TrendingUp className="w-4 h-4 text-brand-500" /> {isMember ? 'My Project Progress' : 'Project Progress'}
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -287,8 +310,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Team Productivity chart + Member Workload table */}
-      {(teamProductivity?.length > 0 || memberWorkload?.length > 0) && (
+      {/* Team Productivity chart + Member Workload table — admin/PM only */}
+      {canViewTeamInsights && (teamProductivity?.length > 0 || memberWorkload?.length > 0) && (
         <div className="grid lg:grid-cols-2 gap-4">
           {/* Team productivity bar */}
           {teamProductivity?.length > 0 && (
@@ -353,7 +376,8 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Recent Activity */}
+      {/* Recent Activity — admin/PM only */}
+      {canViewTeamInsights && (
       <div className="card p-5">
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-4">Recent Activity</h2>
         {recentActivity?.length === 0 ? (
@@ -374,6 +398,7 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

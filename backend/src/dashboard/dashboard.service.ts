@@ -16,6 +16,10 @@ export class DashboardService {
   ) {}
 
   async getSummary(user: UserDocument) {
+    const isMember = user.role === UserRole.MEMBER;
+    const canViewTeamInsights =
+      user.role === UserRole.ADMIN || user.role === UserRole.PROJECT_MANAGER;
+
     const projectQuery = buildProjectScopeFilter(user);
     const now = new Date();
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -28,6 +32,37 @@ export class DashboardService {
       .exec();
     const projectIds = projectRows.map((p) => p._id as Types.ObjectId);
     const taskFilter = buildTaskScopeFilter(user, projectIds);
+
+    const workloadPromise = canViewTeamInsights
+      ? this.taskModel.aggregate([
+          { $match: { ...taskFilter, assignedTo: { $exists: true, $ne: null } } },
+          {
+            $group: {
+              _id: '$assignedTo',
+              total: { $sum: 1 },
+              completed: {
+                $sum: { $cond: [{ $eq: ['$status', TaskStatus.COMPLETED] }, 1, 0] },
+              },
+              inProgress: {
+                $sum: { $cond: [{ $eq: ['$status', TaskStatus.IN_PROGRESS] }, 1, 0] },
+              },
+              todo: {
+                $sum: { $cond: [{ $eq: ['$status', TaskStatus.TODO] }, 1, 0] },
+              },
+            },
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: '_id',
+              foreignField: '_id',
+              as: 'user',
+            },
+          },
+          { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+          { $sort: { total: -1 } },
+        ])
+      : Promise.resolve([]);
 
     const [
       statusCounts,
@@ -90,34 +125,7 @@ export class DashboardService {
         .limit(10)
         .lean()
         .exec(),
-      this.taskModel.aggregate([
-        { $match: { ...taskFilter, assignedTo: { $exists: true, $ne: null } } },
-        {
-          $group: {
-            _id: '$assignedTo',
-            total: { $sum: 1 },
-            completed: {
-              $sum: { $cond: [{ $eq: ['$status', TaskStatus.COMPLETED] }, 1, 0] },
-            },
-            inProgress: {
-              $sum: { $cond: [{ $eq: ['$status', TaskStatus.IN_PROGRESS] }, 1, 0] },
-            },
-            todo: {
-              $sum: { $cond: [{ $eq: ['$status', TaskStatus.TODO] }, 1, 0] },
-            },
-          },
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: '_id',
-            foreignField: '_id',
-            as: 'user',
-          },
-        },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-        { $sort: { total: -1 } },
-      ]),
+      workloadPromise,
     ]);
 
     const statusMap = new Map(statusCounts.map((r) => [r._id, r.count]));
@@ -159,46 +167,52 @@ export class DashboardService {
       perProjectCounts.map((r) => [r._id.toString(), r]),
     );
 
-    const projectSummary = projectRows.map((p) => {
-      const counts = countsByProject.get(p._id.toString()) ?? {
-        total: 0,
-        completed: 0,
-        pending: 0,
-      };
-      const completionPct =
-        counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0;
-      const deadlineDate = new Date(p.deadline);
-      const isCompleted = p.status === ProjectStatus.COMPLETED;
-      const isOverdue = !isCompleted && deadlineDate < now;
-      const isCritical = !isCompleted && deadlineDate <= twoDaysFromNow;
-      const isWarning = !isCompleted && deadlineDate <= sevenDaysFromNow;
-      const deadlineColor: 'red' | 'yellow' | 'green' =
-        isOverdue || isCritical ? 'red' : isWarning ? 'yellow' : 'green';
-      return {
-        _id: p._id,
-        name: p.name,
-        status: p.status,
-        deadline: p.deadline,
-        totalTasks: counts.total,
-        completedTasks: counts.completed,
-        pendingTasks: counts.pending,
-        completionPct,
-        deadlineColor,
-      };
-    });
+    const projectSummary = projectRows
+      .map((p) => {
+        const counts = countsByProject.get(p._id.toString()) ?? {
+          total: 0,
+          completed: 0,
+          pending: 0,
+        };
+        const completionPct =
+          counts.total > 0 ? Math.round((counts.completed / counts.total) * 100) : 0;
+        const deadlineDate = new Date(p.deadline);
+        const isCompleted = p.status === ProjectStatus.COMPLETED;
+        const isOverdue = !isCompleted && deadlineDate < now;
+        const isCritical = !isCompleted && deadlineDate <= twoDaysFromNow;
+        const isWarning = !isCompleted && deadlineDate <= sevenDaysFromNow;
+        const deadlineColor: 'red' | 'yellow' | 'green' =
+          isOverdue || isCritical ? 'red' : isWarning ? 'yellow' : 'green';
+        return {
+          _id: p._id,
+          name: p.name,
+          status: p.status,
+          deadline: p.deadline,
+          totalTasks: counts.total,
+          completedTasks: counts.completed,
+          pendingTasks: counts.pending,
+          completionPct,
+          deadlineColor,
+        };
+      })
+      .filter((p) => !isMember || p.totalTasks > 0);
 
-    const memberWorkload = workloadRows.map((r) => ({
-      name: r.user?.name ?? 'Unknown',
-      total: r.total,
-      completed: r.completed,
-      inProgress: r.inProgress,
-      todo: r.todo,
-    }));
+    const memberWorkload = canViewTeamInsights
+      ? workloadRows.map((r) => ({
+          name: r.user?.name ?? 'Unknown',
+          total: r.total,
+          completed: r.completed,
+          inProgress: r.inProgress,
+          todo: r.todo,
+        }))
+      : [];
 
-    const teamProductivity = memberWorkload
-      .map((m) => ({ name: m.name, completed: m.completed }))
-      .filter((m) => m.completed > 0)
-      .sort((a, b) => b.completed - a.completed);
+    const teamProductivity = canViewTeamInsights
+      ? memberWorkload
+          .map((m) => ({ name: m.name, completed: m.completed }))
+          .filter((m) => m.completed > 0)
+          .sort((a, b) => b.completed - a.completed)
+      : [];
 
     let recentActivity: unknown[] = [];
     if (user.role === UserRole.ADMIN) {

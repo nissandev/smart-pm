@@ -32,7 +32,7 @@ export default function MemberDetailPage() {
 
   const { data: member, isLoading: memberLoading } = useQuery({
     queryKey: ['user', id],
-    queryFn: () => usersApi.getById(id!).then((r) => r.data),
+    queryFn: ({ signal }) => usersApi.getById(id!, signal).then((r) => r.data),
     enabled: !!id,
   });
 
@@ -45,7 +45,7 @@ export default function MemberDetailPage() {
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', 'member', id, { status: statusFilter, priority: priorityFilter }],
-    queryFn: () => tasksApi.getAll(apiFilters),
+    queryFn: ({ signal }) => tasksApi.getAll(apiFilters, signal),
     enabled: !!id,
     placeholderData: keepPreviousData,
   });
@@ -53,7 +53,7 @@ export default function MemberDetailPage() {
   // All tasks unfiltered — needed for accurate stats
   const { data: allMemberTasks = [] } = useQuery({
     queryKey: ['tasks', 'member', id, {}],
-    queryFn: () => tasksApi.getAll({ assignedTo: id! }),
+    queryFn: ({ signal }) => tasksApi.getAll({ assignedTo: id! }, signal),
     enabled: !!id,
   });
 
