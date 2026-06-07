@@ -384,7 +384,11 @@ function AttachmentsCard({ task }: { task: Task }) {
               <div className="flex-1 min-w-0">
                 <button
                   type="button"
-                  onClick={() => id && downloadTaskAttachment(id, idx, a.name).catch(() => toast.error('Download failed'))}
+                  onClick={() =>
+                    downloadTaskAttachment(task._id, idx, a.name).catch(() =>
+                      toast.error('Download failed'),
+                    )
+                  }
                   className="text-sm font-medium text-slate-800 dark:text-slate-200 hover:text-brand-600 dark:hover:text-brand-400 truncate block text-left w-full"
                   title={a.name}
                 >
@@ -404,7 +408,11 @@ function AttachmentsCard({ task }: { task: Task }) {
                 type="button"
                 className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded transition-colors"
                 title="Download"
-                onClick={() => id && downloadTaskAttachment(id, idx, a.name).catch(() => toast.error('Download failed'))}
+                onClick={() =>
+                  downloadTaskAttachment(task._id, idx, a.name).catch(() =>
+                    toast.error('Download failed'),
+                  )
+                }
               >
                 <Download className="w-3.5 h-3.5" />
               </button>

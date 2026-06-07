@@ -1,46 +1,129 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuthStore } from './store/authStore';
-import Layout from './components/layout/Layout';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import DashboardPage from './pages/DashboardPage';
-import MyWorkRoute from './components/auth/MyWorkRoute';
-import ActivityRoute from './components/auth/ActivityRoute';
-import ProjectsPage from './pages/ProjectsPage';
-import ProjectDetailPage from './pages/ProjectDetailPage';
-import TasksPage from './pages/TasksPage';
-import TaskDetailPage from './pages/TaskDetailPage';
-import TeamPage from './pages/TeamPage';
-import MemberDetailPage from './pages/MemberDetailPage';
-import UsersPage from './pages/UsersPage';
-import ProtectedRoute from './components/auth/ProtectedRoute';
+import { useAuthStore } from '@/store/authStore';
+import { PageLoader } from '@/components/ui/PageLoader';
+import Layout from '@/components/layout/Layout';
+import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import MyWorkRoute from '@/components/auth/MyWorkRoute';
+import ActivityRoute from '@/components/auth/ActivityRoute';
+
+const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const SignupPage = lazy(() => import('@/pages/SignupPage'));
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const ProjectsPage = lazy(() => import('@/pages/ProjectsPage'));
+const ProjectDetailPage = lazy(() => import('@/pages/ProjectDetailPage'));
+const TasksPage = lazy(() => import('@/pages/TasksPage'));
+const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
+const TeamPage = lazy(() => import('@/pages/TeamPage'));
+const MemberDetailPage = lazy(() => import('@/pages/MemberDetailPage'));
+const UsersPage = lazy(() => import('@/pages/UsersPage'));
+
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
+}
 
 export default function App() {
   const { theme, token } = useAuthStore();
 
-  // Apply saved theme on mount
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
   return (
     <Routes>
-      <Route path="/login" element={token ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/signup" element={token ? <Navigate to="/" replace /> : <SignupPage />} />
+      <Route
+        path="/login"
+        element={
+          token ? (
+            <Navigate to="/" replace />
+          ) : (
+            <LazyPage>
+              <LoginPage />
+            </LazyPage>
+          )
+        }
+      />
+      <Route
+        path="/signup"
+        element={
+          token ? (
+            <Navigate to="/" replace />
+          ) : (
+            <LazyPage>
+              <SignupPage />
+            </LazyPage>
+          )
+        }
+      />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
+          <Route
+            index
+            element={
+              <LazyPage>
+                <DashboardPage />
+              </LazyPage>
+            }
+          />
           <Route path="my-work" element={<MyWorkRoute />} />
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="projects/:id" element={<ProjectDetailPage />} />
-          <Route path="tasks" element={<TasksPage />} />
-          <Route path="tasks/:id" element={<TaskDetailPage />} />
-          <Route path="team" element={<TeamPage />} />
-          <Route path="team/:id" element={<MemberDetailPage />} />
+          <Route
+            path="projects"
+            element={
+              <LazyPage>
+                <ProjectsPage />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="projects/:id"
+            element={
+              <LazyPage>
+                <ProjectDetailPage />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="tasks"
+            element={
+              <LazyPage>
+                <TasksPage />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="tasks/:id"
+            element={
+              <LazyPage>
+                <TaskDetailPage />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="team"
+            element={
+              <LazyPage>
+                <TeamPage />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="team/:id"
+            element={
+              <LazyPage>
+                <MemberDetailPage />
+              </LazyPage>
+            }
+          />
           <Route path="activity" element={<ActivityRoute />} />
-          <Route path="users" element={<UsersPage />} />
+          <Route
+            path="users"
+            element={
+              <LazyPage>
+                <UsersPage />
+              </LazyPage>
+            }
+          />
         </Route>
       </Route>
 
