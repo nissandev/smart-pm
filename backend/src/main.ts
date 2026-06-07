@@ -2,20 +2,31 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET must be set when NODE_ENV=production');
+  }
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Global prefix
-  app.setGlobalPrefix('api', { exclude: ['uploads/(.*)'] });
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+    }),
+  );
 
-  // Static file serving for task attachments — relative to repo root /app/uploads
+  // Global prefix — uploads are served only via authenticated /api/tasks/.../download
+  app.setGlobalPrefix('api');
+
+  // Ensure upload directory exists (files are not publicly served)
   const uploadsDir = join(process.cwd(), 'uploads');
   mkdirSync(uploadsDir, { recursive: true });
-  app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
 
   // CORS — supports multiple origins via comma-separated FRONTEND_URL.
   // e.g. FRONTEND_URL=https://web-smart-pm.com,https://smartpm.nexarift.com,http://localhost:3000
@@ -53,15 +64,17 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger API docs
-  const config = new DocumentBuilder()
+  // Swagger API docs (disable in production unless explicitly enabled)
+  if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === 'true') {
+    const config = new DocumentBuilder()
     .setTitle('Smart PM API')
     .setDescription('Smart Project & Task Collaboration System API')
     .setVersion('1.0.0')
     .addBearerAuth()
     .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT || 3001;
   await app.listen(port);

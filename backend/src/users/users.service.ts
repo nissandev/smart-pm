@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument, UserRole } from './user.schema';
+import { Project, ProjectDocument } from '../projects/project.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { buildProjectScopeFilter } from '../common/project-scope.util';
 import {
   parsePagination,
   toPaginatedResult,
@@ -13,7 +15,10 @@ import {
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
+  ) {}
 
   async create(createUserDto: CreateUserDto): Promise<UserDocument> {
     const existing = await this.userModel.findOne({ email: createUserDto.email });
@@ -24,13 +29,9 @@ export class UsersService {
     return user.save();
   }
 
-  async findAll(page?: string, limit?: string): Promise<UserDocument[] | PaginatedResult<UserDocument>> {
+  async findAll(page?: string, limit?: string): Promise<PaginatedResult<UserDocument>> {
     const pagination = parsePagination(page, limit);
     const query = this.userModel.find().select('-password').sort({ createdAt: -1 });
-
-    if (!pagination) {
-      return query.exec();
-    }
 
     const [data, total] = await Promise.all([
       query.skip(pagination.skip).limit(pagination.limit).exec(),
@@ -55,6 +56,32 @@ export class UsersService {
     return user;
   }
 
+  /** PM may only view users who share a project they lead; admin sees all. */
+  async findByIdForRequester(id: string, requester: UserDocument): Promise<UserDocument> {
+    if (requester.role === UserRole.ADMIN) {
+      return this.findById(id);
+    }
+    if (requester.role === UserRole.PROJECT_MANAGER) {
+      const visible = await this.isUserVisibleToPm(id, requester);
+      if (!visible) throw new NotFoundException('User not found');
+      return this.findById(id);
+    }
+    throw new NotFoundException('User not found');
+  }
+
+  private async isUserVisibleToPm(targetUserId: string, pm: UserDocument): Promise<boolean> {
+    const pmId = (pm as any)._id;
+    const target = new Types.ObjectId(targetUserId);
+    const pmScope = buildProjectScopeFilter(pm);
+    const shared = await this.projectModel.exists({
+      $and: [
+        pmScope,
+        { $or: [{ members: target }, { leadId: target }, { createdBy: target }] },
+      ],
+    });
+    return !!shared;
+  }
+
   async findByEmail(email: string): Promise<UserDocument | null> {
     return this.userModel.findOne({ email }).exec();
   }
@@ -68,6 +95,17 @@ export class UsersService {
       .exec();
     for (const u of users) {
       map.set(u.email.toLowerCase(), u);
+    }
+    return map;
+  }
+
+  /** Batch lookup — one query instead of N sequential findById calls. */
+  async findByIds(ids: string[]): Promise<Map<string, UserDocument>> {
+    const map = new Map<string, UserDocument>();
+    if (ids.length === 0) return map;
+    const users = await this.userModel.find({ _id: { $in: ids } }).exec();
+    for (const u of users) {
+      map.set(u._id.toString(), u);
     }
     return map;
   }

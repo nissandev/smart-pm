@@ -4,6 +4,29 @@ import type {
   NotificationListResponse, ProjectExpense, ExpenseSummary, ExpenseCategory,
 } from '../types';
 
+/** Backend list endpoints always return paginated payloads — unwrap for UI dropdowns/lists. */
+const LIST_LIMIT = 200;
+
+function isPaginated<T>(body: unknown): body is Paginated<T> {
+  return !!body && typeof body === 'object' && 'data' in body && Array.isArray((body as Paginated<T>).data);
+}
+
+function unwrapList<T>(response: { data: T[] | Paginated<T> }): T[] {
+  return isPaginated(response.data) ? response.data.data : (response.data as T[]);
+}
+
+export async function downloadTaskAttachment(taskId: string, idx: number, filename: string) {
+  const res = await api.get(`/tasks/${taskId}/attachments/${idx}/download`, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Auth ──────────────────────────────────────────────────────
 export const authApi = {
   login: (email: string, password: string) =>
@@ -15,7 +38,7 @@ export const authApi = {
 
 // ── Users ─────────────────────────────────────────────────────
 export const usersApi = {
-  getAll: () => api.get<User[]>('/users'),
+  getAll: () => api.get<User[]>('/users', { params: { limit: LIST_LIMIT } }).then(unwrapList),
   create: (data: { name: string; email: string; password: string; role?: string }) =>
     api.post<User>('/users', data),
   getById: (id: string) => api.get<User>(`/users/${id}`),
@@ -54,7 +77,7 @@ export const groupsApi = {
 };
 
 export const projectsApi = {
-  getAll: () => api.get<Project[]>('/projects'),
+  getAll: () => api.get<Project[]>('/projects', { params: { limit: LIST_LIMIT } }).then(unwrapList),
   getById: (id: string) => api.get<Project>(`/projects/${id}`),
   getStats: () => api.get('/projects/stats'),
   getTaskCounts: () =>
@@ -125,7 +148,7 @@ export interface TaskInput {
 
 export const tasksApi = {
   getAll: (filters?: Record<string, string>) =>
-    api.get<Task[]>('/tasks', { params: filters }),
+    api.get<Task[]>('/tasks', { params: { limit: LIST_LIMIT, ...filters } }).then(unwrapList),
   getById: (id: string) => api.get<Task>(`/tasks/${id}`),
   getStats: () => api.get('/tasks/stats'),
   create: (data: TaskInput & { project: string }) => api.post<Task>('/tasks', data),

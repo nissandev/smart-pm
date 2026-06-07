@@ -26,6 +26,7 @@ import {
   type PaginatedResult,
 } from '../common/pagination.util';
 import { collectAttachmentUrls, deleteUploadByUrl } from '../common/file-cleanup.util';
+import { resolveSecureUploadPath } from '../common/upload-path.util';
 
 @Injectable()
 export class TasksService {
@@ -112,7 +113,7 @@ export class TasksService {
     filters?: Record<string, string | undefined>,
     page?: string,
     limit?: string,
-  ): Promise<TaskDocument[] | PaginatedResult<TaskDocument>> {
+  ): Promise<PaginatedResult<TaskDocument>> {
     const projectIds = await this.projectsService.findAccessibleProjectIds(user);
     const conditions: Record<string, unknown>[] = [buildTaskScopeFilter(user, projectIds)];
 
@@ -134,10 +135,6 @@ export class TasksService {
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
 
-    if (!pagination) {
-      return baseQuery.exec();
-    }
-
     const [data, total] = await Promise.all([
       baseQuery.skip(pagination.skip).limit(pagination.limit).exec(),
       this.taskModel.countDocuments(query).exec(),
@@ -145,7 +142,9 @@ export class TasksService {
     return toPaginatedResult(data, total, pagination);
   }
 
-  async findById(id: string): Promise<TaskDocument> {
+  async findById(id: string, user: UserDocument): Promise<TaskDocument> {
+    await this.assertScopedTaskAccess(id, user);
+
     const task = await this.taskModel
       .findById(id)
       .populate({
@@ -164,9 +163,28 @@ export class TasksService {
     return task;
   }
 
-  async update(id: string, dto: UpdateTaskDto, user: UserDocument): Promise<TaskDocument> {
-    const task = await this.taskModel.findById(id).populate('project');
+  /** Stream attachment bytes after verifying task access. */
+  async getAttachmentForDownload(
+    taskId: string,
+    index: number,
+    user: UserDocument,
+  ): Promise<{ absolutePath: string; name: string; mimeType?: string }> {
+    await this.assertScopedTaskAccess(taskId, user);
+    const task = await this.taskModel.findById(taskId).select('attachments').lean();
     if (!task) throw new NotFoundException('Task not found');
+    if (index < 0 || index >= (task.attachments?.length ?? 0)) {
+      throw new NotFoundException('Attachment not found');
+    }
+    const att = task.attachments[index] as { url?: string; name?: string; mimeType?: string };
+    const absolutePath = resolveSecureUploadPath(att.url);
+    if (!absolutePath) {
+      throw new NotFoundException('Attachment not found');
+    }
+    return { absolutePath, name: att.name ?? 'download', mimeType: att.mimeType };
+  }
+
+  async update(id: string, dto: UpdateTaskDto, user: UserDocument): Promise<TaskDocument> {
+    const task = await this.findScopedTaskWithProject(id, user);
 
     const userId = (user as any)._id.toString();
 
@@ -272,8 +290,7 @@ export class TasksService {
   }
 
   async remove(id: string, user: UserDocument): Promise<void> {
-    const task = await this.taskModel.findById(id).populate('project');
-    if (!task) throw new NotFoundException('Task not found');
+    const task = await this.findScopedTaskWithProject(id, user);
     const userId = (user as any)._id.toString();
     if (user.role === UserRole.MEMBER) {
       throw new ForbiddenException('Members cannot delete tasks');
@@ -310,18 +327,8 @@ export class TasksService {
     file: { url: string; name: string; size?: number; mimeType?: string },
     user: UserDocument,
   ): Promise<TaskDocument> {
-    const task = await this.taskModel.findById(taskId).populate('project');
-    if (!task) throw new NotFoundException('Task not found');
-
-    const projectDoc = task.project as any;
-    // Allow if admin, or PM/member of the project
-    const userId = (user as any)._id.toString();
-    const isMember =
-      user.role === UserRole.ADMIN ||
-      projectDoc?.members?.some(
-        (m: any) => m._id?.toString() === userId || m.toString() === userId,
-      );
-    if (!isMember) throw new ForbiddenException('Not a project member');
+    const task = await this.findScopedTaskWithProject(taskId, user);
+    this.assertProjectMember(task, user);
 
     task.attachments.push({
       url: file.url,
@@ -335,8 +342,7 @@ export class TasksService {
   }
 
   async removeAttachment(taskId: string, index: number, user: UserDocument): Promise<TaskDocument> {
-    const task = await this.taskModel.findById(taskId).populate('project');
-    if (!task) throw new NotFoundException('Task not found');
+    const task = await this.findScopedTaskWithProject(taskId, user);
     if (index < 0 || index >= task.attachments.length) {
       throw new NotFoundException('Attachment not found');
     }
@@ -355,8 +361,7 @@ export class TasksService {
   }
 
   async addComment(taskId: string, text: string, user: UserDocument): Promise<TaskDocument> {
-    const task = await this.taskModel.findById(taskId).populate('project');
-    if (!task) throw new NotFoundException('Task not found');
+    const task = await this.findScopedTaskWithProject(taskId, user);
     // PRD §10: only project members (or admin) can comment
     this.assertProjectMember(task, user);
     task.comments.push({ author: (user as any)._id, text, createdAt: new Date() });
@@ -382,8 +387,8 @@ export class TasksService {
   }
 
   async updateComment(taskId: string, commentId: string, text: string, user: UserDocument): Promise<TaskDocument> {
-    const task = await this.taskModel.findById(taskId);
-    if (!task) throw new NotFoundException('Task not found');
+    const task = await this.findScopedTaskWithProject(taskId, user);
+    this.assertProjectMember(task, user);
     const comment = (task.comments as any[]).find((c) => c._id.toString() === commentId);
     if (!comment) throw new NotFoundException('Comment not found');
     // PRD §10: only the author can edit a comment (admin can NOT edit others' comments)
@@ -395,8 +400,8 @@ export class TasksService {
   }
 
   async deleteComment(taskId: string, commentId: string, user: UserDocument): Promise<TaskDocument> {
-    const task = await this.taskModel.findById(taskId);
-    if (!task) throw new NotFoundException('Task not found');
+    const task = await this.findScopedTaskWithProject(taskId, user);
+    this.assertProjectMember(task, user);
     const comment = (task.comments as any[]).find((c) => c._id.toString() === commentId);
     if (!comment) throw new NotFoundException('Comment not found');
     const userId = (user as any)._id.toString();
@@ -476,6 +481,32 @@ export class TasksService {
     if (!isMember && !isLead) {
       throw new ForbiddenException('Only project members can perform this action');
     }
+  }
+
+  /** Returns 404 when task is missing or outside the user's scope (no ID enumeration). */
+  private async assertScopedTaskAccess(taskId: string, user: UserDocument): Promise<void> {
+    const projectIds = await this.projectsService.findAccessibleProjectIds(user);
+    const scope = buildTaskScopeFilter(user, projectIds);
+    const exists = await this.taskModel.exists({ $and: [{ _id: taskId }, scope] });
+    if (!exists) throw new NotFoundException('Task not found');
+  }
+
+  private async findScopedTaskWithProject(taskId: string, user: UserDocument): Promise<TaskDocument> {
+    const projectIds = await this.projectsService.findAccessibleProjectIds(user);
+    const scope = buildTaskScopeFilter(user, projectIds);
+    const task = await this.taskModel
+      .findOne({ $and: [{ _id: taskId }, scope] })
+      .populate({
+        path: 'project',
+        select: 'name createdBy leadId members',
+        populate: [
+          { path: 'createdBy', select: 'name email role' },
+          { path: 'leadId', select: 'name email role' },
+          { path: 'members', select: 'name email role' },
+        ],
+      });
+    if (!task) throw new NotFoundException('Task not found');
+    return task;
   }
 
   async getStats(user: UserDocument) {

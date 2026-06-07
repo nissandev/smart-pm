@@ -22,8 +22,12 @@ export default function SignupPage() {
       toast.error('Please fill in all fields');
       return;
     }
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    if (password.length < 8 || password.length > 128) {
+      toast.error('Password must be 8–128 characters');
+      return;
+    }
+    if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
+      toast.error('Password must include at least one letter and one number');
       return;
     }
     if (password !== confirm) {
@@ -97,7 +101,7 @@ export default function SignupPage() {
                     <input
                       type={showPass ? 'text' : 'password'}
                       className="input pr-10 bg-white dark:bg-slate-900/50"
-                      placeholder="At least 6 characters"
+                      placeholder="8+ chars, letter and number"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete="new-password"

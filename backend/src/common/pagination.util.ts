@@ -16,9 +16,8 @@ export interface PaginatedResult<T> {
   limit: number;
 }
 
-/** Returns null when page/limit omitted — caller should return legacy full array. */
-export function parsePagination(page?: string, limit?: string): PaginationParams | null {
-  if (page == null && limit == null) return null;
+/** Always paginate — defaults when query params omitted (production-safe). */
+export function parsePagination(page?: string, limit?: string): PaginationParams {
   const pageNum = Math.max(1, parseInt(page ?? String(DEFAULT_PAGE), 10) || DEFAULT_PAGE);
   const limitNum = Math.min(
     MAX_LIMIT,

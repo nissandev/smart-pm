@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Plus, Trash2, UserMinus, Calendar, Edit2,
   Search, Clock, Users, RefreshCw, UserPlus, DollarSign,
+  CheckSquare, Receipt,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, formatDistanceToNow } from 'date-fns';
@@ -43,6 +44,7 @@ export default function ProjectDetailPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'expenses'>('tasks');
 
   // ── Queries ────────────────────────────────────────────────────
   const { data: project, isLoading } = useQuery({
@@ -53,7 +55,7 @@ export default function ProjectDetailPage() {
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', { project: id }],
-    queryFn: () => tasksApi.getAll({ project: id! }).then((r) => r.data),
+    queryFn: () => tasksApi.getAll({ project: id! }),
     enabled: !!id,
   });
 
@@ -358,24 +360,57 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      <ProjectExpensesPanel projectId={project._id} canManage={canManage} />
+      {/* Tasks / Expenses tabs */}
+      <div className="flex items-center justify-between gap-4 mb-5 border-b border-slate-200 dark:border-slate-700 flex-wrap">
+        <div className="flex gap-1">
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === 'tasks'
+                ? 'border-brand-500 text-brand-600 dark:text-brand-400'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            onClick={() => setActiveTab('tasks')}
+          >
+            <CheckSquare className="w-4 h-4" />
+            Tasks
+            <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+              {tasks.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === 'expenses'
+                ? 'border-brand-500 text-brand-600 dark:text-brand-400'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+            onClick={() => setActiveTab('expenses')}
+          >
+            <Receipt className="w-4 h-4" />
+            Expenses
+            <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400">
+              {formatCurrency(expenseSummary?.total ?? 0, expenseSummary?.currency ?? 'USD')}
+            </span>
+          </button>
+        </div>
+        {activeTab === 'tasks' && canManage && (
+          <button
+            type="button"
+            className="btn-primary text-xs py-1.5 flex items-center gap-1 mb-1"
+            onClick={() => setShowCreateTask(true)}
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Task
+          </button>
+        )}
+      </div>
 
       {/* Main grid */}
       <div className="grid lg:grid-cols-3 gap-4">
-        {/* Tasks panel */}
+        {/* Primary panel — tasks or expenses */}
         <div className="lg:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Tasks</h2>
-            {canManage && (
-              <button
-                className="btn-primary text-xs py-1.5 flex items-center gap-1"
-                onClick={() => setShowCreateTask(true)}
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Task
-              </button>
-            )}
-          </div>
-
+          {activeTab === 'tasks' ? (
+            <>
           {/* Filters */}
           <div className="flex gap-2 flex-wrap">
             <div className="relative flex-1 min-w-[140px]">
@@ -535,6 +570,10 @@ export default function ProjectDetailPage() {
                 </p>
               )}
             </>
+          )}
+            </>
+          ) : (
+            <ProjectExpensesPanel projectId={project._id} canManage={canManage} embedded />
           )}
         </div>
 
@@ -1097,7 +1136,7 @@ function AddMemberModal({
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll().then((r) => r.data),
+    queryFn: () => usersApi.getAll(),
     enabled: isAdmin,
   });
 

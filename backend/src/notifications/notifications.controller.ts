@@ -6,6 +6,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MAX_LIMIT } from '../common/pagination.util';
 import { Task, TaskDocument, TaskStatus } from '../tasks/task.schema';
 
 @ApiTags('Notifications')
@@ -38,8 +39,10 @@ export class NotificationsController {
       await this.notifications.syncDueSoon(userId, dueSoonTasks as any);
     }
 
+    const safeLimit = Math.min(MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 20));
+
     const [items, unread] = await Promise.all([
-      this.notifications.findForUser(userId, { limit: +limit }),
+      this.notifications.findForUser(userId, { limit: safeLimit }),
       this.notifications.unreadCount(userId),
     ]);
     return { items, unread };

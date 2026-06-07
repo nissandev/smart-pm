@@ -29,7 +29,7 @@ export default function ActivityPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll().then((r) => r.data),
+    queryFn: () => projectsApi.getAll(),
   });
 
   const { data, isLoading } = useQuery({

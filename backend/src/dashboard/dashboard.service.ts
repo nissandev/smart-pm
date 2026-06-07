@@ -34,7 +34,7 @@ export class DashboardService {
       priorityCounts,
       overdueCount,
       perProjectCounts,
-      trendTasks,
+      completionTrend,
       upcomingDeadlines,
       highPriorityTasks,
       workloadRows,
@@ -67,7 +67,7 @@ export class DashboardService {
           },
         },
       ]),
-      this.taskModel.find(taskFilter).select('status createdAt updatedAt').lean().exec(),
+      this.buildCompletionTrendFromTasks(taskFilter, 8),
       this.taskModel
         .find({
           ...taskFilter,
@@ -155,8 +155,6 @@ export class DashboardService {
       { status: 'Completed', count: completed },
     ];
 
-    const completionTrend = this.buildCompletionTrend(trendTasks, 8);
-
     const countsByProject = new Map(
       perProjectCounts.map((r) => [r._id.toString(), r]),
     );
@@ -224,6 +222,46 @@ export class DashboardService {
     };
   }
 
+  private async buildCompletionTrendFromTasks(
+    taskFilter: Record<string, unknown>,
+    weeks: number,
+  ) {
+    const buckets = this.makeWeekBuckets(weeks);
+    const earliest = buckets[0].start;
+    const scopedFilter = {
+      $and: [
+        taskFilter,
+        {
+          $or: [
+            { createdAt: { $gte: earliest } },
+            { status: TaskStatus.COMPLETED, updatedAt: { $gte: earliest } },
+          ],
+        },
+      ],
+    };
+    const tasks = await this.taskModel
+      .find(scopedFilter)
+      .select('status createdAt updatedAt')
+      .lean()
+      .exec();
+    return this.buildCompletionTrend(tasks, weeks);
+  }
+
+  private makeWeekBuckets(weeks: number) {
+    const buckets: { start: Date; end: Date; label: string }[] = [];
+    const now = new Date();
+    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    for (let i = weeks - 1; i >= 0; i--) {
+      const end = new Date(todayUTC);
+      end.setUTCDate(end.getUTCDate() - i * 7);
+      const start = new Date(end);
+      start.setUTCDate(start.getUTCDate() - 6);
+      const label = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      buckets.push({ start, end, label });
+    }
+    return buckets;
+  }
+
   private buildCompletionTrend(tasks: Array<{ status: TaskStatus; createdAt?: Date; updatedAt?: Date }>, weeks: number) {
     const buckets: { start: Date; end: Date; label: string; completed: number; created: number }[] = [];
     const now = new Date();
@@ -278,12 +316,15 @@ export class DashboardService {
     const now = new Date();
     const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
+    const MY_WORK_LIMIT = 50;
+
     const [overdue, dueSoon, stagnant, assigneeRows] = await Promise.all([
       this.taskModel
         .find({ ...taskQuery, status: { $ne: TaskStatus.COMPLETED }, dueDate: { $lt: now } })
         .populate('project', 'name')
         .populate('assignedTo', 'name email avatar')
         .sort({ dueDate: 1 })
+        .limit(MY_WORK_LIMIT)
         .lean()
         .exec(),
       this.taskModel
@@ -295,6 +336,7 @@ export class DashboardService {
         .populate('project', 'name')
         .populate('assignedTo', 'name email avatar')
         .sort({ dueDate: 1 })
+        .limit(MY_WORK_LIMIT)
         .lean()
         .exec(),
       this.taskModel
@@ -306,6 +348,7 @@ export class DashboardService {
         .populate('project', 'name')
         .populate('assignedTo', 'name email avatar')
         .sort({ dueDate: 1 })
+        .limit(MY_WORK_LIMIT)
         .lean()
         .exec(),
       this.taskModel

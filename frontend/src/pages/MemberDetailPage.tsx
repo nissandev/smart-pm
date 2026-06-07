@@ -45,7 +45,7 @@ export default function MemberDetailPage() {
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', 'member', id, { status: statusFilter, priority: priorityFilter }],
-    queryFn: () => tasksApi.getAll(apiFilters).then((r) => r.data),
+    queryFn: () => tasksApi.getAll(apiFilters),
     enabled: !!id,
     placeholderData: keepPreviousData,
   });
@@ -53,7 +53,7 @@ export default function MemberDetailPage() {
   // All tasks unfiltered — needed for accurate stats
   const { data: allMemberTasks = [] } = useQuery({
     queryKey: ['tasks', 'member', id, {}],
-    queryFn: () => tasksApi.getAll({ assignedTo: id! }).then((r) => r.data),
+    queryFn: () => tasksApi.getAll({ assignedTo: id! }),
     enabled: !!id,
   });
 

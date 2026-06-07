@@ -68,13 +68,13 @@ export default function TasksPage() {
   // ── Queries ────────────────────────────────────────────────────
   const { data: tasks = [], isLoading, isFetching } = useQuery({
     queryKey: ['tasks', serverFilters],
-    queryFn: () => tasksApi.getAll(serverFilters).then((r) => r.data),
+    queryFn: () => tasksApi.getAll(serverFilters),
     placeholderData: keepPreviousData,
   });
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll().then((r) => r.data),
+    queryFn: () => projectsApi.getAll(),
   });
 
   const { data: groups = [] } = useQuery({
@@ -87,7 +87,7 @@ export default function TasksPage() {
   const isAdmin = me?.role === 'admin';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll().then((r) => r.data),
+    queryFn: () => usersApi.getAll(),
     enabled: isAdmin,
   });
 

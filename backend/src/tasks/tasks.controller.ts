@@ -8,11 +8,14 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { randomBytes } from 'crypto';
-import { mkdirSync } from 'fs';
+import { mkdirSync, readFileSync, unlinkSync } from 'fs';
 import type { Response } from 'express';
+import { createReadStream } from 'fs';
 import { TasksService } from './tasks.service';
+import { assertBufferMatchesMime } from '../common/file-type.util';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { AddCommentDto, UpdateCommentDto } from './dto/comment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -110,8 +113,8 @@ export class TasksController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.tasksService.findById(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.tasksService.findById(id, user);
   }
 
   @Patch(':id')
@@ -131,20 +134,20 @@ export class TasksController {
   @Post(':id/comments')
   addComment(
     @Param('id') id: string,
-    @Body('text') text: string,
+    @Body() dto: AddCommentDto,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.tasksService.addComment(id, text, user);
+    return this.tasksService.addComment(id, dto.text, user);
   }
 
   @Patch(':id/comments/:commentId')
   updateComment(
     @Param('id') id: string,
     @Param('commentId') commentId: string,
-    @Body('text') text: string,
+    @Body() dto: UpdateCommentDto,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.tasksService.updateComment(id, commentId, text, user);
+    return this.tasksService.updateComment(id, commentId, dto.text, user);
   }
 
   @Delete(':id/comments/:commentId')
@@ -187,10 +190,25 @@ export class TasksController {
   )
   uploadAttachment(
     @Param('id') id: string,
-    @UploadedFile() file: any,
+    @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: UserDocument,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
+
+    const absolutePath = join(UPLOADS_DIR, file.filename);
+    try {
+      const buffer = readFileSync(absolutePath);
+      assertBufferMatchesMime(buffer, file.mimetype);
+    } catch (err) {
+      try {
+        unlinkSync(absolutePath);
+      } catch {
+        /* ignore cleanup errors */
+      }
+      if (err instanceof BadRequestException) throw err;
+      throw new BadRequestException('Uploaded file could not be validated');
+    }
+
     const url = `/uploads/tasks/${file.filename}`;
     return this.tasksService.addAttachment(id, {
       url,
@@ -198,6 +216,20 @@ export class TasksController {
       size: file.size,
       mimeType: file.mimetype,
     }, user);
+  }
+
+  @Get(':id/attachments/:idx/download')
+  @ApiOperation({ summary: 'Download task attachment (authenticated)' })
+  async downloadAttachment(
+    @Param('id') id: string,
+    @Param('idx') idx: string,
+    @CurrentUser() user: UserDocument,
+    @Res() res: Response,
+  ) {
+    const file = await this.tasksService.getAttachmentForDownload(id, +idx, user);
+    res.setHeader('Content-Type', file.mimeType ?? 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.name)}"`);
+    createReadStream(file.absolutePath).pipe(res);
   }
 
   @Delete(':id/attachments/:idx')

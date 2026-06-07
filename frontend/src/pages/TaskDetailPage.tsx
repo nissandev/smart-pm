@@ -7,8 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, isPast, formatDistanceToNow } from 'date-fns';
-import { tasksApi } from '../services';
-import { fileUrl } from '../services/api';
+import { tasksApi, downloadTaskAttachment } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PriorityBadge, TaskStatusBadge, ConfirmModal, Avatar, Spinner,
@@ -383,15 +382,14 @@ function AttachmentsCard({ task }: { task: Task }) {
             <li key={`${a.url}-${idx}`} className="flex items-center gap-3 py-2.5 group">
               <FileTypeIcon mimeType={a.mimeType} />
               <div className="flex-1 min-w-0">
-                <a
-                  href={fileUrl(a.url)}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-sm font-medium text-slate-800 dark:text-slate-200 hover:text-brand-600 dark:hover:text-brand-400 truncate block"
+                <button
+                  type="button"
+                  onClick={() => id && downloadTaskAttachment(id, idx, a.name).catch(() => toast.error('Download failed'))}
+                  className="text-sm font-medium text-slate-800 dark:text-slate-200 hover:text-brand-600 dark:hover:text-brand-400 truncate block text-left w-full"
                   title={a.name}
                 >
                   {a.name}
-                </a>
+                </button>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {a.size != null && <span>{prettySize(a.size)}</span>}
                   {a.uploadedAt && (
@@ -402,15 +400,14 @@ function AttachmentsCard({ task }: { task: Task }) {
                   )}
                 </p>
               </div>
-              <a
-                href={fileUrl(a.url)}
-                target="_blank"
-                rel="noreferrer noopener"
+              <button
+                type="button"
                 className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded transition-colors"
                 title="Download"
+                onClick={() => id && downloadTaskAttachment(id, idx, a.name).catch(() => toast.error('Download failed'))}
               >
                 <Download className="w-3.5 h-3.5" />
-              </a>
+              </button>
               {canRemove(a) && (
                 <button
                   type="button"

@@ -20,6 +20,7 @@ import { Task, TaskDocument, TaskStatus } from '../tasks/task.schema';
 import { UsersService } from '../users/users.service';
 import { GroupsService } from '../groups/groups.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { assertProjectAccess, assertProjectLeadOrAdmin } from '../common/project-access.util';
 import { isProjectLead } from './project-lead.util';
 import { buildProjectScopeFilter } from '../common/project-scope.util';
 import {
@@ -118,7 +119,7 @@ export class ProjectsService {
     user: UserDocument,
     page?: string,
     limit?: string,
-  ): Promise<ProjectDocument[] | PaginatedResult<ProjectDocument>> {
+  ): Promise<PaginatedResult<ProjectDocument>> {
     const query = buildProjectScopeFilter(user);
     const pagination = parsePagination(page, limit);
     const baseQuery = this.projectModel
@@ -128,10 +129,6 @@ export class ProjectsService {
       .populate({ path: 'members', model: 'User', select: 'name email role' })
       .populate({ path: 'teamId', select: 'name' })
       .sort({ createdAt: -1 });
-
-    if (!pagination) {
-      return baseQuery.exec();
-    }
 
     const [data, total] = await Promise.all([
       baseQuery.skip(pagination.skip).limit(pagination.limit).exec(),
@@ -390,8 +387,13 @@ export class ProjectsService {
       }
     }
 
+    const usersById = await this.usersService.findByIds(toAdd);
+
     for (const memberId of toAdd) {
-      const memberUser = await this.usersService.findById(memberId);
+      const memberUser = usersById.get(memberId);
+      if (!memberUser) {
+        throw new BadRequestException(`User not found: ${memberId}`);
+      }
       if (!memberUser.isActive) {
         throw new BadRequestException(`Cannot add inactive user: ${memberUser.email}`);
       }
@@ -815,19 +817,11 @@ export class ProjectsService {
   }
 
   private checkAccess(project: ProjectDocument, user: UserDocument) {
-    if (user.role === UserRole.ADMIN) return;
-    const userId = (user as any)._id.toString();
-    const isMember = project.members.some((m: any) => m._id?.toString() === userId || m.toString() === userId);
-    const isLead = isProjectLead(project, userId);
-    if (!isMember && !isLead) throw new ForbiddenException('Access denied');
+    assertProjectAccess(project, user);
   }
 
   private checkLeadOrAdmin(project: ProjectDocument, user: UserDocument) {
-    if (user.role === UserRole.ADMIN) return;
-    const userId = (user as any)._id.toString();
-    if (!isProjectLead(project, userId)) {
-      throw new ForbiddenException('Only the project lead or admin can perform this action');
-    }
+    assertProjectLeadOrAdmin(project, user);
   }
 
   private mergeMemberIds(base: Types.ObjectId[], extra: Types.ObjectId[]): Types.ObjectId[] {

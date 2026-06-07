@@ -26,6 +26,7 @@ services:
       MONGO_URI: ${MONGO_URI}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      ALLOW_PUBLIC_REGISTER: ${ALLOW_PUBLIC_REGISTER:-false}
       FRONTEND_URL: ${FRONTEND_URL}
     expose:
       - "3001"

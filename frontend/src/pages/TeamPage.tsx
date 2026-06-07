@@ -45,7 +45,7 @@ export default function TeamPage() {
 
   const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll().then((r) => r.data),
+    queryFn: () => usersApi.getAll(),
     enabled: isAdmin,
   });
 
@@ -101,7 +101,7 @@ export default function TeamPage() {
 
   const { data: allTasks = [], isLoading: tasksLoading, isFetching: tasksFetching } = useQuery({
     queryKey: ['tasks', 'workload', wlFilters],
-    queryFn: () => tasksApi.getAll(wlFilters).then((r) => r.data),
+    queryFn: () => tasksApi.getAll(wlFilters),
     enabled: isAdminOrPM,
     placeholderData: keepPreviousData,
   });
@@ -114,7 +114,7 @@ export default function TeamPage() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll().then((r) => r.data),
+    queryFn: () => projectsApi.getAll(),
     enabled: isAdminOrPM,
   });
 

@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards, ForbiddenException, Request } from '
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ActivityService } from './activity.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MAX_LIMIT } from '../common/pagination.util';
 import { UserRole, UserDocument } from '../users/user.schema';
 import { ProjectsService } from '../projects/projects.service';
 
@@ -41,7 +42,9 @@ export class ActivityController {
     const user = req.user;
     if (user.role === UserRole.MEMBER) throw new ForbiddenException('Access denied');
     const scope = await this.resolveScope(user, project);
-    return this.activityService.findPaginated(+page, +limit, scope);
+    const safeLimit = Math.min(MAX_LIMIT, Math.max(1, +limit || 20));
+    const safePage = Math.max(1, +page || 1);
+    return this.activityService.findPaginated(safePage, safeLimit, scope);
   }
 
   @Get('recent')
@@ -53,6 +56,7 @@ export class ActivityController {
     const user = req.user;
     if (user.role === UserRole.MEMBER) throw new ForbiddenException('Access denied');
     const scope = await this.resolveScope(user, project);
-    return this.activityService.findRecent(+limit, scope);
+    const safeLimit = Math.min(MAX_LIMIT, Math.max(1, +limit || 10));
+    return this.activityService.findRecent(safeLimit, scope);
   }
 }

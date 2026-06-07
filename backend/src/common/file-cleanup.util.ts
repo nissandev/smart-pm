@@ -1,11 +1,10 @@
 import { existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { resolveSecureUploadPath } from './upload-path.util';
 
 /** Remove a local upload file referenced by `/uploads/...` URL. Best-effort. */
 export function deleteUploadByUrl(url: string | undefined): void {
-  if (!url || !url.startsWith('/uploads/')) return;
-  const relative = url.replace(/^\//, '');
-  const absolute = join(process.cwd(), relative);
+  const absolute = resolveSecureUploadPath(url);
+  if (!absolute) return;
   try {
     if (existsSync(absolute)) unlinkSync(absolute);
   } catch {

@@ -15,6 +15,7 @@ services:
       MONGO_URI: ${MONGO_URI}
       JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      ALLOW_PUBLIC_REGISTER: ${ALLOW_PUBLIC_REGISTER:-true}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     ports:
       - "3001:3001"

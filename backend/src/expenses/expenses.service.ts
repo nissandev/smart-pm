@@ -7,7 +7,7 @@ import { Expense, ExpenseDocument, ExpenseCategory } from './expense.schema';
 import { CreateExpenseDto, UpdateExpenseDto } from './dto/create-expense.dto';
 import { Project, ProjectDocument } from '../projects/project.schema';
 import { UserRole, UserDocument } from '../users/user.schema';
-import { isProjectLead } from '../projects/project-lead.util';
+import { assertProjectAccess, assertProjectLeadOrAdmin } from '../common/project-access.util';
 import { buildProjectScopeFilter } from '../common/project-scope.util';
 import { ActivityService } from '../activity/activity.service';
 import { ActionType } from '../activity/activity.schema';
@@ -202,20 +202,10 @@ export class ExpensesService {
   }
 
   private checkAccess(project: ProjectDocument, user: UserDocument) {
-    if (user.role === UserRole.ADMIN) return;
-    const userId = (user as any)._id.toString();
-    const isMember = project.members.some(
-      (m: any) => m._id?.toString() === userId || m.toString() === userId,
-    );
-    const isLead = isProjectLead(project, userId);
-    if (!isMember && !isLead) throw new ForbiddenException('Access denied');
+    assertProjectAccess(project, user);
   }
 
   private checkLeadOrAdmin(project: ProjectDocument, user: UserDocument) {
-    if (user.role === UserRole.ADMIN) return;
-    const userId = (user as any)._id.toString();
-    if (!isProjectLead(project, userId)) {
-      throw new ForbiddenException('Only the project lead or admin can manage expenses');
-    }
+    assertProjectLeadOrAdmin(project, user);
   }
 }

@@ -3,6 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": ["frontend", "backend", "shared"],
+  "dependencies": {
+    "@nestjs/common": "11.1.24",
+    "@nestjs/core": "11.1.24"
+  },
+  "overrides": {
+    "@nestjs/common": "11.1.24",
+    "@nestjs/core": "11.1.24",
+    "@nestjs/platform-express": "11.1.24",
+    "lodash": "4.18.1",
+    "minimatch": "10.2.5",
+    "multer": "2.1.1",
+    "qs": "6.15.2",
+    "tar": "7.5.16"
+  },
   "scripts": {
     "dev": "docker compose up --build",
     "dev:detach": "docker compose up --build -d",
@@ -10,6 +24,8 @@
     "down:volumes": "docker compose down -v",
     "logs": "docker compose logs -f",
     "logs:frontend": "docker compose logs -f frontend",
-    "logs:backend": "docker compose logs -f backend"
+    "logs:backend": "docker compose logs -f backend",
+    "audit": "npm audit",
+    "audit:prod": "npm audit --omit=dev"
   }
 }

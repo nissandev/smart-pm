@@ -6,7 +6,8 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from './user.schema';
+import { UserRole, UserDocument } from './user.schema';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -30,8 +31,8 @@ export class UsersController {
 
   @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findById(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.usersService.findByIdForRequester(id, user);
   }
 
   @Roles(UserRole.ADMIN)

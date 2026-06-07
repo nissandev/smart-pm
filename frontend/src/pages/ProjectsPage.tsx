@@ -41,7 +41,7 @@ export default function ProjectsPage() {
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll().then((r) => r.data),
+    queryFn: () => projectsApi.getAll(),
   });
 
   const { data: taskStatsByProject = {} } = useQuery({
@@ -59,7 +59,7 @@ export default function ProjectsPage() {
   const canPickGroup = user?.role === 'admin' || user?.role === 'project_manager';
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll().then((r) => r.data),
+    queryFn: () => usersApi.getAll(),
     enabled: isAdmin,
   });
 
@@ -363,7 +363,7 @@ function ProjectFormModal({ project, isAdmin, groups, canPickGroup, onClose, onS
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.getAll().then((r) => r.data),
+    queryFn: () => usersApi.getAll(),
     enabled: isAdmin && !project,
   });
   const projectManagers = allUsers.filter((u) => u.role === 'project_manager');
