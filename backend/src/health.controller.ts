@@ -19,7 +19,7 @@ export class HealthController {
       });
     }
 
-    await this.connection.db.admin().ping();
+    await this.connection.db!.admin().ping();
 
     return {
       status: 'ok',

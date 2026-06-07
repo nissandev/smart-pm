@@ -7,15 +7,40 @@ import { UserDocument, UserRole } from '../users/user.schema';
 import { ActivityService } from '../activity/activity.service';
 import { buildProjectScopeFilter, buildTaskScopeFilter } from '../common/project-scope.util';
 
+const SUMMARY_TTL_MS = 60_000; // 60 seconds — dashboard aggregations are expensive
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
 @Injectable()
 export class DashboardService {
+  private readonly summaryCache = new Map<string, CacheEntry<unknown>>();
+
   constructor(
     @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
     private activityService: ActivityService,
   ) {}
 
+  /** Call from TasksService / ProjectsService after any mutation. */
+  invalidateSummary(userId: string) {
+    this.summaryCache.delete(userId);
+  }
+
   async getSummary(user: UserDocument) {
+    const cacheKey = (user as any)._id.toString();
+    const cached = this.summaryCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
+    const result = await this.computeSummary(user);
+    this.summaryCache.set(cacheKey, { data: result, expiresAt: Date.now() + SUMMARY_TTL_MS });
+    return result;
+  }
+
+  private async computeSummary(user: UserDocument) {
     const isMember = user.role === UserRole.MEMBER;
     const canViewTeamInsights =
       user.role === UserRole.ADMIN || user.role === UserRole.PROJECT_MANAGER;
@@ -308,7 +333,24 @@ export class DashboardService {
     return buckets.map((b) => ({ label: b.label, completed: b.completed, created: b.created }));
   }
 
+  private readonly myWorkCache = new Map<string, CacheEntry<unknown>>();
+  private readonly MY_WORK_TTL_MS = 30_000; // 30 seconds — more volatile than summary
+
   async getMyWork(
+    user: UserDocument,
+    filters: { project?: string; assignee?: string } = {},
+  ) {
+    const cacheKey = `${(user as any)._id}:${filters.project ?? ''}:${filters.assignee ?? ''}`;
+    const cached = this.myWorkCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
+    const result = await this.computeMyWork(user, filters);
+    this.myWorkCache.set(cacheKey, { data: result, expiresAt: Date.now() + this.MY_WORK_TTL_MS });
+    return result;
+  }
+
+  private async computeMyWork(
     user: UserDocument,
     filters: { project?: string; assignee?: string } = {},
   ) {

@@ -10,6 +10,7 @@ async function clear() {
   console.log('✅ Connected to MongoDB');
 
   const db = mongoose.connection.db;
+  if (!db) throw new Error('DB connection not established');
   const [projects, tasks, activities] = await Promise.all([
     db.collection('projects').deleteMany({}),
     db.collection('tasks').deleteMany({}),

@@ -257,6 +257,8 @@ export class TasksService {
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email');
 
+    if (!updated) throw new NotFoundException('Task not found after update');
+
     const projectId = (task.project as any)?._id ?? task.project;
 
     if (dto.status && dto.status !== prevStatus) {

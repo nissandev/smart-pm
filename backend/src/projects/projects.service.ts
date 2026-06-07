@@ -248,6 +248,8 @@ export class ProjectsService {
       .populate('leadId', 'name email role')
       .populate({ path: 'members', model: 'User', select: 'name email role' });
 
+    if (!updated) throw new NotFoundException('Project not found after update');
+
     await this.activityService.log({
       actor: (user as any)._id,
       actionType: ActionType.PROJECT_UPDATED,
