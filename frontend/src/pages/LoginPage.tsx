@@ -25,7 +25,7 @@ export default function LoginPage() {
 
   const performLogin = async (loginEmail: string, loginPassword: string) => {
     const { data } = await authApi.login(loginEmail, loginPassword);
-    setAuth(data.user, data.token);
+    setAuth(data.user, data.accessToken);
     toast.success(`Welcome back, ${data.user.name}!`);
     navigate('/');
   };

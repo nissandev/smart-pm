@@ -1,13 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { setAccessToken } from '../services/api';
 import type { User } from '../types';
 
 interface AuthStore {
   user: User | null;
-  token: string | null;
   theme: 'light' | 'dark';
-  setAuth: (user: User, token: string) => void;
+  /** True once the startup /auth/me check has completed (success or failure). */
+  sessionChecked: boolean;
+  setAuth: (user: User, accessToken: string) => void;
   logout: () => void;
+  setSessionChecked: (checked: boolean) => void;
   toggleTheme: () => void;
 }
 
@@ -15,19 +18,20 @@ export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
       user: null,
-      token: null,
       theme: 'dark',
+      sessionChecked: false,
 
-      setAuth: (user, token) => {
-        localStorage.setItem('smartpm_token', token);
-        set({ user, token });
+      setAuth: (user, accessToken) => {
+        setAccessToken(accessToken);
+        set({ user });
       },
 
       logout: () => {
-        localStorage.removeItem('smartpm_token');
-        localStorage.removeItem('smartpm_user');
-        set({ user: null, token: null });
+        setAccessToken(null);
+        set({ user: null });
       },
+
+      setSessionChecked: (checked) => set({ sessionChecked: checked }),
 
       toggleTheme: () => {
         const next = get().theme === 'dark' ? 'light' : 'dark';
@@ -39,8 +43,9 @@ export const useAuthStore = create<AuthStore>()(
       name: 'smartpm_auth',
       partialize: (state) => ({
         user: state.user,
-        token: state.token,
         theme: state.theme,
+        // accessToken intentionally excluded — lives in memory only (XSS protection)
+        // sessionChecked intentionally excluded — re-verified on every app load
       }),
     },
   ),

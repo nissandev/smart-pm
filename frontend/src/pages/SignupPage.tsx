@@ -41,7 +41,7 @@ export default function SignupPage() {
         email,
         password,
       });
-      setAuth(data.user, data.token);
+      setAuth(data.user, data.accessToken);
       toast.success(`Welcome, ${data.user.name}!`);
       navigate('/');
     } catch (err: any) {

@@ -30,9 +30,13 @@ export async function downloadTaskAttachment(taskId: string, idx: number, filena
 // ── Auth ──────────────────────────────────────────────────────
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<{ user: User; token: string }>('/auth/login', { email, password }),
+    api.post<{ user: User; accessToken: string }>('/auth/login', { email, password }),
   register: (data: { name: string; email: string; password: string; role?: string }) =>
-    api.post<{ user: User; token: string }>('/auth/register', data),
+    api.post<{ user: User; accessToken: string }>('/auth/register', data),
+  refresh: () =>
+    api.post<{ accessToken: string }>('/auth/refresh'),
+  logout: () =>
+    api.post('/auth/logout'),
   me: (signal?: AbortSignal) => api.get<User>('/auth/me', { signal }),
 };
 

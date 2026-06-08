@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { PageLoader } from '@/components/ui/PageLoader';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
@@ -8,6 +8,7 @@ import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import MyWorkRoute from '@/components/auth/MyWorkRoute';
 import ActivityRoute from '@/components/auth/ActivityRoute';
 import { authApi } from '@/services';
+import { registerLogoutHandler } from '@/services/api';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SignupPage = lazy(() => import('@/pages/SignupPage'));
@@ -19,6 +20,7 @@ const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
 const TeamPage = lazy(() => import('@/pages/TeamPage'));
 const MemberDetailPage = lazy(() => import('@/pages/MemberDetailPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
+const ActivityPage = lazy(() => import('@/pages/ActivityPage'));
 
 function LazyPage({ children }: { children: React.ReactNode }) {
   return (
@@ -29,30 +31,52 @@ function LazyPage({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { theme, token, setAuth, logout } = useAuthStore();
+  const { theme, user, setAuth, logout, setSessionChecked, sessionChecked } = useAuthStore();
+  const navigate = useNavigate();
   const verified = useRef(false);
 
-  // Verify token is still valid on every app load / page refresh
+  // Register force-logout handler so api.ts can clear state when refresh fails
   useEffect(() => {
-    if (!token || verified.current) return;
-    verified.current = true;
-    authApi.me().then((res) => {
-      setAuth(res.data, token);
-    }).catch(() => {
+    registerLogoutHandler(() => {
       logout();
+      navigate('/login', { replace: true });
     });
-  }, [token, setAuth, logout]);
+  }, [logout, navigate]);
+
+  // On every app load: validate session via cookie → get fresh access token
+  useEffect(() => {
+    if (verified.current) return;
+    verified.current = true;
+
+    authApi.me()
+      .then((res) => {
+        // /auth/me returns the user; we still need an access token.
+        // Call refresh to get one (the HttpOnly cookie is already valid).
+        return authApi.refresh().then(({ data: tokenData }) => {
+          setAuth(res.data, tokenData.accessToken);
+        });
+      })
+      .catch(() => {
+        logout();
+      })
+      .finally(() => {
+        setSessionChecked(true);
+      });
+  }, [setAuth, logout, setSessionChecked]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+
+  // Show full-page loader until the session check resolves
+  if (!sessionChecked) return <PageLoader />;
 
   return (
     <Routes>
       <Route
         path="/login"
         element={
-          token ? (
+          user ? (
             <Navigate to="/" replace />
           ) : (
             <LazyPage>
@@ -64,7 +88,7 @@ export default function App() {
       <Route
         path="/signup"
         element={
-          token ? (
+          user ? (
             <Navigate to="/" replace />
           ) : (
             <LazyPage>

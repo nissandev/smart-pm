@@ -28,15 +28,19 @@ export class User {
 
   @Prop()
   avatar?: string;
+
+  @Prop({ select: false })
+  refreshTokenHash?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// Hide password in JSON output
+// Hide password and refresh token hash in JSON output
 UserSchema.set('toJSON', {
   transform: (_doc, ret) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (ret as any).password;
+    delete (ret as any).refreshTokenHash;
     return ret;
   },
 });

@@ -5,6 +5,7 @@ import {
   UserCog, Zap,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { authApi } from '../../services';
 import type { UserRole } from '../../types';
 
 const navItems: {
@@ -73,7 +74,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await authApi.logout(); } catch { /* ignore — clear client state regardless */ }
     logout();
     navigate('/login');
   };

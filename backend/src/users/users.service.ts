@@ -53,6 +53,22 @@ export class UsersService {
       .exec();
   }
 
+  /** Used only by the refresh endpoint — needs the hidden refreshTokenHash field. */
+  async findByIdWithRefreshToken(id: string): Promise<UserDocument | null> {
+    return this.userModel
+      .findById(id)
+      .select('_id isActive refreshTokenHash')
+      .exec();
+  }
+
+  async saveRefreshToken(userId: string, hash: string): Promise<void> {
+    await this.userModel.findByIdAndUpdate(userId, { refreshTokenHash: hash });
+  }
+
+  async clearRefreshToken(userId: string): Promise<void> {
+    await this.userModel.findByIdAndUpdate(userId, { $unset: { refreshTokenHash: '' } });
+  }
+
   async findById(id: string): Promise<UserDocument> {
     const user = await this.userModel.findById(id).select('-password');
     if (!user) throw new NotFoundException('User not found');
