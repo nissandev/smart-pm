@@ -2,7 +2,17 @@ import { BadRequestException } from '@nestjs/common';
 
 type MimeMatcher = { mime: string; matches: (buf: Buffer) => boolean };
 
-const ZIP_SIGNATURE = (buf: Buffer) => buf[0] === 0x50 && buf[1] === 0x4b;
+const isZip = (buf: Buffer) => buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b;
+const isCfb = (buf: Buffer) =>
+  buf.length >= 8 && buf.slice(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+
+// All Office Open XML formats (.docx, .xlsx, .pptx) share the ZIP container.
+// Validating at the container level is sufficient — cross-labelling between them
+// carries no security risk since all are allowed and all are ZIP-based.
+const OPENXML_MIMES = new Set([
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
 
 const MATCHERS: MimeMatcher[] = [
   {
@@ -28,38 +38,26 @@ const MATCHERS: MimeMatcher[] = [
     mime: 'application/pdf',
     matches: (b) => b.length >= 5 && b.slice(0, 5).toString('ascii') === '%PDF-',
   },
-  {
-    mime: 'application/msword',
-    matches: (b) => b.length >= 8 && b.slice(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])),
-  },
-  {
-    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    matches: ZIP_SIGNATURE,
-  },
-  {
-    mime: 'application/vnd.ms-excel',
-    matches: (b) => b.length >= 8 && b.slice(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])),
-  },
-  {
-    mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    matches: ZIP_SIGNATURE,
-  },
-  {
-    mime: 'text/plain',
-    matches: (b) => !b.includes(0),
-  },
-  {
-    mime: 'text/csv',
-    matches: (b) => !b.includes(0),
-  },
+  { mime: 'application/msword', matches: isCfb },
+  { mime: 'application/vnd.ms-excel', matches: isCfb },
+  { mime: 'text/plain', matches: (b) => !b.includes(0) },
+  { mime: 'text/csv', matches: (b) => !b.includes(0) },
 ];
 
-const ALLOWED_MIMES = new Set(MATCHERS.map((m) => m.mime));
+const ALLOWED_MIMES = new Set([...MATCHERS.map((m) => m.mime), ...OPENXML_MIMES]);
 
 /** Verify buffer content matches the declared MIME (magic-byte check). */
 export function assertBufferMatchesMime(buffer: Buffer, declaredMime: string): void {
   if (!ALLOWED_MIMES.has(declaredMime)) {
     throw new BadRequestException('File type not allowed');
+  }
+
+  // OpenXML formats (.docx, .xlsx) all use the ZIP container — validate at container level.
+  if (OPENXML_MIMES.has(declaredMime)) {
+    if (!isZip(buffer)) {
+      throw new BadRequestException('File content does not match its declared type');
+    }
+    return;
   }
 
   const matcher = MATCHERS.find((m) => m.mime === declaredMime);

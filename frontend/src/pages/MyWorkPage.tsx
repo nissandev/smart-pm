@@ -18,7 +18,7 @@ type Section = 'overdue' | 'dueSoon' | 'stagnant';
 const SECTION_META: Record<Section, { label: string; description: string; icon: typeof AlertCircle; color: string; bg: string }> = {
   overdue: {
     label: 'Overdue',
-    description: 'Past due and not completed',
+    description: 'In progress but past the deadline',
     icon: AlertCircle,
     color: 'text-red-600',
     bg: 'bg-red-50 dark:bg-red-900/20',

@@ -4,13 +4,13 @@ import { Search, Mail, LayoutGrid, BarChart2, Filter, Plus, Edit2, Trash2, Users
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { usersApi, tasksApi, dashboardApi, projectsApi, groupsApi, type CreateGroupInput } from '../services';
+import { usersApi, dashboardApi, projectsApi, groupsApi, type CreateGroupInput, type WorkloadTasksResult } from '../services';
 import { useAuthStore } from '../store/authStore';
 import {
   LoadingScreen, PageHeader, EmptyState, Avatar, PriorityBadge, TaskStatusBadge,
   ConfirmModal, Spinner,
 } from '../components/shared';
-import type { User, UserRole, Task, TaskPriority, TaskStatus, Project, TeamGroup } from '../types';
+import type { User, UserRole, TaskPriority, TaskStatus, Project, TeamGroup } from '../types';
 
 const ROLE_STYLES: Record<UserRole, string> = {
   admin: 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-400',
@@ -57,7 +57,7 @@ export default function TeamPage() {
 
   const { data: groups = [], isLoading: groupsLoading } = useQuery({
     queryKey: ['groups'],
-    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal),
     enabled: (isAdmin && tab === 'groups') || (isPM && tab === 'members') || isMember,
   });
 
@@ -103,10 +103,10 @@ export default function TeamPage() {
     return f;
   }, [wlProject, wlStatus, wlPriority]);
 
-  const { data: allTasks = [], isLoading: tasksLoading, isFetching: tasksFetching } = useQuery({
-    queryKey: ['tasks', 'workload', wlFilters],
-    queryFn: ({ signal }) => tasksApi.getAll(wlFilters, signal),
-    enabled: isAdminOrPM,
+  const { data: workloadData, isLoading: tasksLoading, isFetching: tasksFetching } = useQuery({
+    queryKey: ['workload-tasks', wlFilters],
+    queryFn: ({ signal }) => dashboardApi.getWorkloadTasks(wlFilters, signal),
+    enabled: isAdminOrPM && tab === 'workload',
     placeholderData: keepPreviousData,
   });
 
@@ -137,18 +137,7 @@ export default function TeamPage() {
     );
   }, [groups, isPM, search]);
 
-  // Group API-filtered tasks by assigned member
-  const tasksByMember = useMemo(() => {
-    const map = new Map<string, { user: User | null; tasks: Task[] }>();
-    for (const task of allTasks as Task[]) {
-      const assignee = task.assignedTo as User | undefined;
-      if (!assignee) continue;
-      const key = assignee._id;
-      if (!map.has(key)) map.set(key, { user: assignee, tasks: [] });
-      map.get(key)!.tasks.push(task);
-    }
-    return Array.from(map.values()).sort((a, b) => b.tasks.length - a.tasks.length);
-  }, [allTasks]);
+  const tasksByMember = workloadData?.members ?? [];
 
   const filteredGroups = groups.filter((g) =>
     g.name.toLowerCase().includes(groupSearch.toLowerCase()),
@@ -439,15 +428,15 @@ export default function TeamPage() {
             />
           ) : (
             tasksByMember.map(({ user: assignee, tasks: memberTasks }) => (
-              <div key={assignee?._id} className="card p-5">
+              <div key={assignee._id} className="card p-5">
                 <div
                   className="flex items-center gap-3 mb-4 cursor-pointer group/header w-fit"
-                  onClick={() => assignee && navigate(`/team/${assignee._id}`)}
+                  onClick={() => navigate(`/team/${assignee._id}`)}
                 >
-                  <Avatar name={assignee?.name || '?'} size="md" />
+                  <Avatar name={assignee.name} size="md" />
                   <div>
                     <p className="font-semibold text-slate-900 dark:text-white group-hover/header:text-brand-600 dark:group-hover/header:text-brand-400 transition-colors">
-                      {assignee?.name}
+                      {assignee.name}
                     </p>
                     <p className="text-xs text-slate-400">
                       {memberTasks.length} task{memberTasks.length !== 1 ? 's' : ''} assigned
@@ -462,9 +451,7 @@ export default function TeamPage() {
                     >
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-slate-800 dark:text-slate-200 truncate">{task.title}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {typeof task.project === 'object' ? (task.project as any).name : ''}
-                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{task.project?.name ?? ''}</p>
                       </div>
                       <PriorityBadge priority={task.priority as TaskPriority} />
                       <TaskStatusBadge status={task.status as TaskStatus} />

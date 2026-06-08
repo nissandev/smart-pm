@@ -27,6 +27,7 @@ import {
 } from '../common/pagination.util';
 import { collectAttachmentUrls, deleteUploadByUrl } from '../common/file-cleanup.util';
 import { resolveSecureUploadPath } from '../common/upload-path.util';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 @Injectable()
 export class TasksService {
@@ -36,6 +37,7 @@ export class TasksService {
     private activityService: ActivityService,
     private notifications: NotificationsService,
     private usersService: UsersService,
+    private dashboardService: DashboardService,
   ) {}
 
   async create(dto: CreateTaskDto, user: UserDocument): Promise<TaskDocument> {
@@ -74,7 +76,13 @@ export class TasksService {
     }
 
     const task = new this.taskModel({ ...dto, createdBy: user._id });
-    const saved = await (await task.save()).populate(['assignedTo', 'createdBy']);
+    let saved: TaskDocument;
+    try {
+      saved = await (await task.save()).populate(['assignedTo', 'createdBy']);
+    } catch (err: any) {
+      if (err?.code === 11000) throw new ConflictException('This task already exists in the project');
+      throw err;
+    }
 
     await this.activityService.log({
       actor: (user as any)._id,
@@ -103,8 +111,10 @@ export class TasksService {
         task: saved._id,
         project: new Types.ObjectId(dto.project),
       });
+      this.dashboardService.invalidateSummary(dto.assignedTo);
     }
 
+    this.dashboardService.invalidateSummary((user as any)._id.toString());
     return saved;
   }
 
@@ -252,8 +262,9 @@ export class TasksService {
 
     const prevStatus = task.status;
     const prevAssigneeId = task.assignedTo?.toString();
+    const { project: _omit, ...safeDto } = dto as any;
     const updated = await this.taskModel
-      .findByIdAndUpdate(id, dto, { new: true })
+      .findByIdAndUpdate(id, safeDto, { new: true })
       .populate('assignedTo', 'name email avatar')
       .populate('createdBy', 'name email');
 
@@ -317,6 +328,10 @@ export class TasksService {
       });
     }
 
+    const affectedIds = new Set<string>([(user as any)._id.toString()]);
+    if (updated?.assignedTo) affectedIds.add(updated.assignedTo._id?.toString() ?? updated.assignedTo.toString());
+    for (const uid of affectedIds) this.dashboardService.invalidateSummary(uid);
+
     return updated;
   }
 
@@ -350,6 +365,8 @@ export class TasksService {
     for (const url of fileUrls) {
       deleteUploadByUrl(url);
     }
+    this.dashboardService.invalidateSummary((user as any)._id.toString());
+    if (task.assignedTo) this.dashboardService.invalidateSummary(task.assignedTo.toString());
   }
 
   // ── Attachments (PRD §10) ─────────────────────────────────────────
@@ -386,9 +403,14 @@ export class TasksService {
     if (!isOwner && !isAdmin && !isProjectLead) {
       throw new ForbiddenException('You can only remove your own attachments');
     }
-    deleteUploadByUrl(att.url);
-    task.attachments.splice(index, 1);
-    return task.save();
+    const attUrl = att.url;
+    const updated = await this.taskModel
+      .findByIdAndUpdate(taskId, { $pull: { attachments: { url: attUrl } } }, { new: true })
+      .populate('assignedTo', 'name email avatar')
+      .populate('createdBy', 'name email');
+    if (!updated) throw new NotFoundException('Task not found');
+    deleteUploadByUrl(attUrl);
+    return updated;
   }
 
   async addComment(taskId: string, text: string, user: UserDocument): Promise<TaskDocument> {

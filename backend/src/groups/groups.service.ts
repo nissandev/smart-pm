@@ -47,7 +47,7 @@ export class GroupsService {
     if (!group) throw new NotFoundException('Group not found');
 
     if (user && user.role === UserRole.PROJECT_MANAGER) {
-      const leadId = group.leadId.toString();
+      const leadId = ((group.leadId as any)?._id ?? group.leadId).toString();
       if (leadId !== (user as any)._id.toString()) {
         throw new ForbiddenException('You can only access groups you lead');
       }

@@ -92,7 +92,7 @@ export default function TasksPage() {
 
   const { data: groups = [] } = useQuery({
     queryKey: ['groups'],
-    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal),
     enabled: canUseGroups,
   });
 
@@ -208,7 +208,7 @@ export default function TasksPage() {
           <div className="flex rounded-xl border border-slate-200 dark:border-white/[0.08] p-0.5 bg-slate-100/80 dark:bg-white/[0.04] flex-shrink-0">
             <button
               type="button"
-              onClick={() => setViewMode('board')}
+              onClick={() => { setViewMode('board'); setStatusFilter(''); }}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 viewMode === 'board'
                   ? 'bg-white dark:bg-white/[0.08] text-brand-600 dark:text-brand-400 shadow-sm'

@@ -26,7 +26,7 @@ export function buildProjectScopeFilter(user: ScopeUser): Record<string, unknown
 
   if (role === UserRole.ADMIN) return {};
   if (role === UserRole.PROJECT_MANAGER) {
-    return { $or: [{ leadId: userId }, { createdBy: userId }] };
+    return { $or: [{ leadId: userId }, { createdBy: userId }, { members: userId }] };
   }
   return { members: userId };
 }

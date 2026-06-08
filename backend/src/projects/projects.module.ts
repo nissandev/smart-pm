@@ -9,6 +9,7 @@ import { Task, TaskSchema } from '../tasks/task.schema';
 import { UsersModule } from '../users/users.module';
 import { GroupsModule } from '../groups/groups.module';
 import { ExpensesModule } from '../expenses/expenses.module';
+import { DashboardModule } from '../dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ExpensesModule } from '../expenses/expenses.module';
     UsersModule,
     GroupsModule,
     ExpensesModule,
+    DashboardModule,
   ],
   providers: [ProjectsService],
   controllers: [ProjectsController],

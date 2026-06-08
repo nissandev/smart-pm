@@ -6,8 +6,8 @@ import { TasksController } from './tasks.controller';
 import { ProjectsModule } from '../projects/projects.module';
 import { ActivityModule } from '../activity/activity.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-
 import { UsersModule } from '../users/users.module';
+import { DashboardModule } from '../dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -16,6 +16,7 @@ import { UsersModule } from '../users/users.module';
     ActivityModule,
     NotificationsModule,
     UsersModule,
+    DashboardModule,
   ],
   providers: [TasksService],
   controllers: [TasksController],

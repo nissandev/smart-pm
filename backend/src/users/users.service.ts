@@ -131,6 +131,13 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto): Promise<UserDocument> {
+    if (dto.email) {
+      const existing = await this.userModel.findOne({
+        email: dto.email.toLowerCase().trim(),
+        _id: { $ne: new Types.ObjectId(id) },
+      }).lean();
+      if (existing) throw new ConflictException('Email is already in use');
+    }
     if (dto.password) {
       dto.password = await bcrypt.hash(dto.password, 12);
     }

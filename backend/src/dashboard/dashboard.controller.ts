@@ -19,6 +19,16 @@ export class DashboardController {
     return this.dashboardService.getSummary(user);
   }
 
+  @Get('workload-tasks')
+  getWorkloadTasks(
+    @CurrentUser() user: UserDocument,
+    @Query('project') project?: string,
+    @Query('status') status?: string,
+    @Query('priority') priority?: string,
+  ) {
+    return this.dashboardService.getWorkloadTasks(user, { project, status, priority });
+  }
+
   @Get('my-work')
   async getMyWork(
     @CurrentUser() user: UserDocument,

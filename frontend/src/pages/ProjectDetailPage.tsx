@@ -60,7 +60,7 @@ export default function ProjectDetailPage() {
 
   const { data: project, isLoading } = useQuery({
     queryKey: queryKeys.projects.detail(id!),
-    queryFn: ({ signal }) => projectsApi.getById(id!, signal).then((r) => r.data),
+    queryFn: ({ signal }) => projectsApi.getById(id!, signal),
     enabled: !!id,
   });
 

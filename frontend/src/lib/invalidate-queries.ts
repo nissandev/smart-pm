@@ -23,4 +23,6 @@ export function invalidateProjectQueries(qc: QueryClient, projectId: string) {
   qc.invalidateQueries({ queryKey: queryKeys.projects.all });
   qc.invalidateQueries({ queryKey: queryKeys.projects.syncPreview(projectId) });
   qc.invalidateQueries({ queryKey: queryKeys.activity.project(projectId) });
+  qc.invalidateQueries({ queryKey: queryKeys.tasks.all });
+  qc.invalidateQueries({ queryKey: queryKeys.dashboard.summary });
 }

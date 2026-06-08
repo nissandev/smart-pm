@@ -24,10 +24,10 @@ export class NotificationsService {
     private readonly notificationModel: Model<NotificationDocument>,
   ) {}
 
-  async create(input: CreateNotificationInput): Promise<NotificationDocument> {
+  async create(input: CreateNotificationInput): Promise<NotificationDocument | null> {
     // Don't notify self — actor and recipient being the same is noise.
     if (input.actor && input.recipient.toString() === input.actor.toString()) {
-      return null as any;
+      return null;
     }
     const created = new this.notificationModel(input);
     return created.save();

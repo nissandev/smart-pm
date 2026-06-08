@@ -5,7 +5,7 @@ import type {
 } from '../types';
 
 /** Backend list endpoints always return paginated payloads — unwrap for UI dropdowns/lists. */
-const LIST_LIMIT = 200;
+const LIST_LIMIT = 500;
 
 function isPaginated<T>(body: unknown): body is Paginated<T> {
   return !!body && typeof body === 'object' && 'data' in body && Array.isArray((body as Paginated<T>).data);
@@ -46,7 +46,7 @@ export const usersApi = {
     api.get<User[]>('/users', { params: { limit: LIST_LIMIT, ...filters }, signal }).then(unwrapList),
   create: (data: { name: string; email: string; password: string; role?: string }) =>
     api.post<User>('/users', data),
-  getById: (id: string, signal?: AbortSignal) => api.get<User>(`/users/${id}`, { signal }),
+  getById: (id: string, signal?: AbortSignal) => api.get<User>(`/users/${id}`, { signal }).then((r) => r.data),
   update: (id: string, data: Partial<User>) => api.patch<User>(`/users/${id}`, data),
   updateRole: (id: string, role: string) => api.patch<User>(`/users/${id}/role`, { role }),
   delete: (id: string) => api.delete(`/users/${id}`),
@@ -74,8 +74,8 @@ export interface CreateGroupInput {
 }
 
 export const groupsApi = {
-  getAll: (signal?: AbortSignal) => api.get<TeamGroup[]>('/groups', { signal }),
-  getById: (id: string, signal?: AbortSignal) => api.get<TeamGroup>(`/groups/${id}`, { signal }),
+  getAll: (signal?: AbortSignal) => api.get<TeamGroup[]>('/groups', { signal }).then((r) => r.data),
+  getById: (id: string, signal?: AbortSignal) => api.get<TeamGroup>(`/groups/${id}`, { signal }).then((r) => r.data),
   create: (data: CreateGroupInput) => api.post<TeamGroup>('/groups', data),
   update: (id: string, data: Partial<CreateGroupInput>) => api.patch<TeamGroup>(`/groups/${id}`, data),
   delete: (id: string) => api.delete(`/groups/${id}`),
@@ -84,7 +84,9 @@ export const groupsApi = {
 export const projectsApi = {
   getAll: (filters?: Record<string, string>, signal?: AbortSignal) =>
     api.get<Project[]>('/projects', { params: { limit: LIST_LIMIT, ...filters }, signal }).then(unwrapList),
-  getById: (id: string, signal?: AbortSignal) => api.get<Project>(`/projects/${id}`, { signal }),
+  getAllPaged: (filters?: Record<string, string>, signal?: AbortSignal) =>
+    api.get<Paginated<Project>>('/projects', { params: filters, signal }).then((r) => r.data),
+  getById: (id: string, signal?: AbortSignal) => api.get<Project>(`/projects/${id}`, { signal }).then((r) => r.data),
   getStats: (signal?: AbortSignal) => api.get('/projects/stats', { signal }),
   getTaskCounts: (signal?: AbortSignal) =>
     api
@@ -153,7 +155,7 @@ export interface TaskInput {
 export const tasksApi = {
   getAll: (filters?: Record<string, string>, signal?: AbortSignal) =>
     api.get<Task[]>('/tasks', { params: { limit: LIST_LIMIT, ...filters }, signal }).then(unwrapList),
-  getById: (id: string, signal?: AbortSignal) => api.get<Task>(`/tasks/${id}`, { signal }),
+  getById: (id: string, signal?: AbortSignal) => api.get<Task>(`/tasks/${id}`, { signal }).then((r) => r.data),
   getStats: (signal?: AbortSignal) => api.get('/tasks/stats', { signal }),
   create: (data: TaskInput & { project: string }) => api.post<Task>('/tasks', data),
   update: (id: string, data: TaskInput) => api.patch<Task>(`/tasks/${id}`, data),
@@ -196,10 +198,19 @@ export const activityApi = {
 };
 
 // ── Dashboard ─────────────────────────────────────────────────
+export interface WorkloadTasksResult {
+  members: Array<{
+    user: { _id: string; name: string; email: string };
+    tasks: Array<{ _id: string; title: string; priority: string; status: string; dueDate?: string; project: { _id: string; name: string } }>;
+  }>;
+}
+
 export const dashboardApi = {
   getSummary: (signal?: AbortSignal) => api.get<DashboardStats>('/dashboard', { signal }),
   getMyWork: (filters?: { project?: string; assignee?: string }, signal?: AbortSignal) =>
     api.get<MyWorkStats>('/dashboard/my-work', { params: filters, signal }),
+  getWorkloadTasks: (filters?: { project?: string; status?: string; priority?: string }, signal?: AbortSignal) =>
+    api.get<WorkloadTasksResult>('/dashboard/workload-tasks', { params: filters, signal }).then((r) => r.data),
 };
 
 // ── Notifications ─────────────────────────────────────────────

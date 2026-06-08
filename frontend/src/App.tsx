@@ -7,8 +7,9 @@ import Layout from '@/components/layout/Layout';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import MyWorkRoute from '@/components/auth/MyWorkRoute';
 import ActivityRoute from '@/components/auth/ActivityRoute';
+import AdminRoute from '@/components/auth/AdminRoute';
 import { authApi } from '@/services';
-import { registerLogoutHandler } from '@/services/api';
+import { registerLogoutHandler, setAccessToken } from '@/services/api';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SignupPage = lazy(() => import('@/pages/SignupPage'));
@@ -19,7 +20,6 @@ const TasksPage = lazy(() => import('@/pages/TasksPage'));
 const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
 const TeamPage = lazy(() => import('@/pages/TeamPage'));
 const MemberDetailPage = lazy(() => import('@/pages/MemberDetailPage'));
-const UsersPage = lazy(() => import('@/pages/UsersPage'));
 const ActivityPage = lazy(() => import('@/pages/ActivityPage'));
 
 function LazyPage({ children }: { children: React.ReactNode }) {
@@ -48,11 +48,10 @@ export default function App() {
     if (verified.current) return;
     verified.current = true;
 
-    authApi.me()
-      .then((res) => {
-        // /auth/me returns the user; we still need an access token.
-        // Call refresh to get one (the HttpOnly cookie is already valid).
-        return authApi.refresh().then(({ data: tokenData }) => {
+    authApi.refresh()
+      .then(({ data: tokenData }) => {
+        setAccessToken(tokenData.accessToken);
+        return authApi.me().then((res) => {
           setAuth(res.data, tokenData.accessToken);
         });
       })
@@ -158,14 +157,7 @@ export default function App() {
             }
           />
           <Route path="activity" element={<ActivityRoute />} />
-          <Route
-            path="users"
-            element={
-              <LazyPage>
-                <UsersPage />
-              </LazyPage>
-            }
-          />
+          <Route path="users" element={<AdminRoute />} />
         </Route>
       </Route>
 

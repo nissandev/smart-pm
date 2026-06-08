@@ -29,6 +29,7 @@ import {
   type PaginatedResult,
 } from '../common/pagination.util';
 import { collectAttachmentUrls, deleteUploadByUrl } from '../common/file-cleanup.util';
+import { DashboardService } from '../dashboard/dashboard.service';
 
 @Injectable()
 export class ProjectsService {
@@ -40,6 +41,7 @@ export class ProjectsService {
     private usersService: UsersService,
     private groupsService: GroupsService,
     private expensesService: ExpensesService,
+    private dashboardService: DashboardService,
   ) {}
 
   async create(dto: CreateProjectDto, user: UserDocument): Promise<ProjectDocument> {
@@ -110,8 +112,10 @@ export class ProjectsService {
         message: `"${saved.name}"`,
         project: saved._id,
       });
+      this.dashboardService.invalidateSummary(leadObjectId.toString());
     }
 
+    this.dashboardService.invalidateSummary((user as any)._id.toString());
     return saved;
   }
 
@@ -299,6 +303,10 @@ export class ProjectsService {
       entityId: project._id,
       description: `Project "${project.name}" was deleted (and ${deletedTaskCount} task${deletedTaskCount === 1 ? '' : 's'}${deletedExpenses > 0 ? `, ${deletedExpenses} expense${deletedExpenses === 1 ? '' : 's'}` : ''})`,
     });
+
+    this.dashboardService.invalidateSummary((user as any)._id.toString());
+    if (project.leadId) this.dashboardService.invalidateSummary(project.leadId.toString());
+    for (const m of project.members) this.dashboardService.invalidateSummary(m.toString());
   }
 
   async addMember(
@@ -578,6 +586,12 @@ export class ProjectsService {
         }
         removedIds.push(id);
       }
+      if (removedIds.length > 0) {
+        await this.taskModel.updateMany(
+          { project: project._id, assignedTo: { $in: removedIds.map((id) => new Types.ObjectId(id)) } },
+          { $unset: { assignedTo: '' } },
+        );
+      }
     }
 
     project.teamId = group._id as Types.ObjectId;
@@ -817,6 +831,11 @@ export class ProjectsService {
       project.leadId = undefined;
     }
     const saved = await project.save();
+
+    await this.taskModel.updateMany(
+      { project: project._id, assignedTo: new Types.ObjectId(memberId) },
+      { $unset: { assignedTo: '' } },
+    );
     await saved.populate([
       { path: 'createdBy', select: 'name email role' },
       { path: 'leadId', select: 'name email role' },

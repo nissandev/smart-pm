@@ -54,11 +54,13 @@ export default function ProjectsPage() {
     setPage(1);
   }, [serverFilters]);
 
-  const { data: projects = [], isLoading } = useQuery({
-    queryKey: ['projects', serverFilters],
-    queryFn: ({ signal }) => projectsApi.getAll(serverFilters, signal),
+  const { data: pagedProjects, isLoading } = useQuery({
+    queryKey: ['projects', serverFilters, page],
+    queryFn: ({ signal }) =>
+      projectsApi.getAllPaged({ ...serverFilters, page: String(page), limit: String(PAGE_SIZE) }, signal),
     placeholderData: keepPreviousData,
   });
+  const projects = pagedProjects?.data ?? [];
 
   const { data: taskStatsByProject = {} } = useQuery({
     queryKey: ['project-task-counts'],
@@ -77,7 +79,7 @@ export default function ProjectsPage() {
 
   const { data: groups = [] } = useQuery({
     queryKey: ['groups'],
-    queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
+    queryFn: ({ signal }) => groupsApi.getAll(signal),
     enabled: canPickGroup,
   });
 
@@ -99,11 +101,12 @@ export default function ProjectsPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete project'),
   });
 
-  const totalPages = Math.max(1, Math.ceil(projects.length / PAGE_SIZE));
+  const totalPages = pagedProjects?.pages ?? 1;
   const safePage = Math.min(page, totalPages);
-  const paginated = projects.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const from = projects.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
-  const to = Math.min(safePage * PAGE_SIZE, projects.length);
+  const total = pagedProjects?.total ?? 0;
+  const paginated = projects;
+  const from = total === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const to = Math.min(safePage * PAGE_SIZE, total);
 
   const deadlineColor = (d: string) => {
     const days = differenceInDays(new Date(d), new Date());
@@ -119,7 +122,7 @@ export default function ProjectsPage() {
     <div>
       <PageHeader
         title="Projects"
-        subtitle={`${projects.length} project${projects.length !== 1 ? 's' : ''}`}
+        subtitle={`${total} project${total !== 1 ? 's' : ''}`}
         action={
           canCreate ? (
             <button className="btn-primary flex items-center gap-2" onClick={() => setShowForm(true)}>
@@ -178,7 +181,7 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {projects.length === 0 ? (
+      {total === 0 ? (
         Object.keys(serverFilters).length > 0
           ? <EmptyState title="No matches" description="Try adjusting your search or filter" />
           : <EmptyState
@@ -274,10 +277,10 @@ export default function ProjectsPage() {
       )}
 
       {/* Pagination */}
-      {projects.length > PAGE_SIZE && (
+      {total > PAGE_SIZE && (
         <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Showing {from}–{to} of {projects.length}
+            Showing {from}–{to} of {total}
           </p>
           <div className="flex items-center gap-2">
             <button

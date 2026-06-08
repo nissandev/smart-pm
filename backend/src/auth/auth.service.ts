@@ -33,10 +33,10 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
+    if (!user.isActive) throw new UnauthorizedException('Account is deactivated');
+
     const valid = await this.usersService.validatePassword(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
-
-    if (!user.isActive) throw new UnauthorizedException('Account is deactivated');
 
     return this.issueTokens(user);
   }

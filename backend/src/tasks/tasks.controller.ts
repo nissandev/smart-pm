@@ -231,8 +231,13 @@ export class TasksController {
   ) {
     const file = await this.tasksService.getAttachmentForDownload(id, +idx, user);
     res.setHeader('Content-Type', file.mimeType ?? 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.name)}"`);
-    createReadStream(file.absolutePath).pipe(res);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    const stream = createReadStream(file.absolutePath);
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).json({ message: 'File not found on server' });
+      else res.destroy();
+    });
+    stream.pipe(res);
   }
 
   @Delete(':id/attachments/:idx')

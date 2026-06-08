@@ -32,7 +32,7 @@ export default function MemberDetailPage() {
 
   const { data: member, isLoading: memberLoading } = useQuery({
     queryKey: ['user', id],
-    queryFn: ({ signal }) => usersApi.getById(id!, signal).then((r) => r.data),
+    queryFn: ({ signal }) => usersApi.getById(id!, signal),
     enabled: !!id,
   });
 
@@ -69,7 +69,7 @@ export default function MemberDetailPage() {
       todo: all.filter((t) => t.status === 'Todo').length,
       overdue: all.filter((t) => t.status !== 'Completed' && isPast(new Date(t.dueDate))).length,
     };
-  }, [tasks]);
+  }, [allMemberTasks]);
 
   if (memberLoading || tasksLoading) return <LoadingScreen />;
   if (!member) return <div className="text-center py-16 text-slate-400">Member not found</div>;

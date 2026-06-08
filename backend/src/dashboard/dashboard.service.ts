@@ -7,7 +7,9 @@ import { UserDocument, UserRole } from '../users/user.schema';
 import { ActivityService } from '../activity/activity.service';
 import { buildProjectScopeFilter, buildTaskScopeFilter } from '../common/project-scope.util';
 
-const SUMMARY_TTL_MS = 60_000; // 60 seconds — dashboard aggregations are expensive
+// 15s TTL: short enough that stale data is barely noticeable even without explicit invalidation,
+// long enough to absorb burst traffic. For multi-instance deployments replace with Redis cache.
+const SUMMARY_TTL_MS = 15_000;
 
 interface CacheEntry<T> {
   data: T;
@@ -333,6 +335,76 @@ export class DashboardService {
     return buckets.map((b) => ({ label: b.label, completed: b.completed, created: b.created }));
   }
 
+  async getWorkloadTasks(
+    user: UserDocument,
+    filters: { project?: string; status?: string; priority?: string } = {},
+  ) {
+    const projectQuery = buildProjectScopeFilter(user);
+    const projectFilter = filters.project
+      ? ({ $and: [projectQuery, { _id: new Types.ObjectId(filters.project) }] } as any)
+      : projectQuery;
+
+    const projectRows = await this.projectModel.find(projectFilter).select('_id').lean().exec();
+    const projectIds = projectRows.map((p) => p._id as Types.ObjectId);
+    const baseFilter = buildTaskScopeFilter(user, projectIds);
+
+    const taskMatch: Record<string, unknown> = {
+      ...baseFilter,
+      assignedTo: { $exists: true, $ne: null },
+    };
+    if (filters.status) taskMatch.status = filters.status;
+    if (filters.priority) taskMatch.priority = filters.priority;
+
+    const members = await this.taskModel.aggregate([
+      { $match: taskMatch },
+      {
+        $lookup: {
+          from: 'projects',
+          localField: 'project',
+          foreignField: '_id',
+          as: '_proj',
+        },
+      },
+      { $unwind: { path: '$_proj', preserveNullAndEmptyArrays: true } },
+      { $sort: { assignedTo: 1, dueDate: 1 } },
+      {
+        $group: {
+          _id: '$assignedTo',
+          tasks: {
+            $push: {
+              _id: '$_id',
+              title: '$title',
+              priority: '$priority',
+              status: '$status',
+              dueDate: '$dueDate',
+              project: { _id: '$_proj._id', name: '$_proj.name' },
+            },
+          },
+        },
+      },
+      { $addFields: { tasks: { $slice: ['$tasks', 20] } } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: '_user',
+        },
+      },
+      { $unwind: '$_user' },
+      {
+        $project: {
+          _id: 0,
+          user: { _id: '$_user._id', name: '$_user.name', email: '$_user.email' },
+          tasks: 1,
+        },
+      },
+      { $sort: { 'tasks.0': 1 } },
+    ]);
+
+    return { members };
+  }
+
   private readonly myWorkCache = new Map<string, CacheEntry<unknown>>();
   private readonly MY_WORK_TTL_MS = 30_000; // 30 seconds — more volatile than summary
 
@@ -376,7 +448,7 @@ export class DashboardService {
 
     const [overdue, dueSoon, stagnant, assigneeRows] = await Promise.all([
       this.taskModel
-        .find({ ...taskQuery, status: { $ne: TaskStatus.COMPLETED }, dueDate: { $lt: now } })
+        .find({ ...taskQuery, status: TaskStatus.IN_PROGRESS, dueDate: { $lt: now } })
         .populate('project', 'name')
         .populate('assignedTo', 'name email avatar')
         .sort({ dueDate: 1 })

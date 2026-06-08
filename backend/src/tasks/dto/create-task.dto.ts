@@ -2,7 +2,7 @@ import {
   IsDateString, IsEnum, IsMongoId, IsNotEmpty,
   IsOptional, IsString, MaxLength,
 } from 'class-validator';
-import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { ApiProperty, OmitType, PartialType } from '@nestjs/swagger';
 import { TaskPriority, TaskStatus } from '../task.schema';
 
 export class CreateTaskDto {
@@ -40,4 +40,4 @@ export class CreateTaskDto {
   status?: TaskStatus;
 }
 
-export class UpdateTaskDto extends PartialType(CreateTaskDto) {}
+export class UpdateTaskDto extends PartialType(OmitType(CreateTaskDto, ['project'] as const)) {}
