@@ -16,15 +16,16 @@ export class GroupsService {
   ) {}
 
   async findAll(user: UserDocument): Promise<TeamGroupDocument[]> {
-    const query =
-      user.role === UserRole.ADMIN
-        ? {}
-        : user.role === UserRole.PROJECT_MANAGER
-          ? { leadId: user._id }
-          : null;
+    let query: Record<string, any>;
 
-    if (query === null) {
-      throw new ForbiddenException('Only admins and project managers can view groups');
+    if (user.role === UserRole.ADMIN) {
+      query = {};
+    } else if (user.role === UserRole.PROJECT_MANAGER) {
+      query = { leadId: user._id };
+    } else if (user.role === UserRole.MEMBER) {
+      query = { memberIds: (user as any)._id };
+    } else {
+      throw new ForbiddenException('Access denied');
     }
 
     return this.groupModel

@@ -17,7 +17,7 @@ import { UserDocument, UserRole } from '../users/user.schema';
 export class GroupsController {
   constructor(private readonly groupsService: GroupsService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER, UserRole.MEMBER)
   @Get()
   findAll(@CurrentUser() user: UserDocument) {
     return this.groupsService.findAll(user);

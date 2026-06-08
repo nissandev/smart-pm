@@ -53,11 +53,12 @@ export default function TeamPage() {
   });
 
   const isPM = me?.role === 'project_manager';
+  const isMember = me?.role === 'member';
 
   const { data: groups = [], isLoading: groupsLoading } = useQuery({
     queryKey: ['groups'],
     queryFn: ({ signal }) => groupsApi.getAll(signal).then((r) => r.data),
-    enabled: (isAdmin && tab === 'groups') || (isPM && tab === 'members'),
+    enabled: (isAdmin && tab === 'groups') || (isPM && tab === 'members') || isMember,
   });
 
   const createGroupMutation = useMutation({
@@ -162,19 +163,39 @@ export default function TeamPage() {
   if (!isAdminOrPM) {
     return (
       <div>
-        <PageHeader title="Team" subtitle="Your team members" />
-        <div className="card p-12 flex flex-col items-center text-center">
+        <PageHeader title="Team" subtitle="Your groups" />
+        <div className="card p-5 flex items-center gap-4 mb-6">
           <Avatar name={me?.name || '?'} size="lg" />
-          <p className="mt-4 text-sm font-medium text-slate-900 dark:text-white">{me?.name}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{me?.email}</p>
-          <span className={`mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ROLE_STYLES[me!.role]}`}>
-            {ROLE_LABELS[me!.role]}
-          </span>
-          <p className="text-xs text-slate-400 mt-6">Full team directory is visible to admins.</p>
-          <button className="btn-secondary mt-3 text-xs" onClick={() => navigate('/projects')}>
-            View Projects
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-slate-900 dark:text-white">{me?.name}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{me?.email}</p>
+            <span className={`mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ROLE_STYLES[me!.role]}`}>
+              {ROLE_LABELS[me!.role]}
+            </span>
+          </div>
+          <button className="btn-secondary text-xs flex-shrink-0" onClick={() => navigate('/projects')}>
+            Projects
           </button>
         </div>
+
+        {groups.length === 0 ? (
+          <div className="card p-10 flex flex-col items-center text-center">
+            <UsersRound className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-3" />
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+              You haven&apos;t been added to any group yet.
+            </p>
+            <p className="text-xs text-slate-400 mt-1">An admin will assign you to a group.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+              Groups you&apos;re included in
+            </p>
+            {groups.map((g) => (
+              <MemberGroupCard key={g._id} group={g} myId={me!._id} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -643,6 +664,54 @@ function GroupFormModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function MemberGroupCard({ group, myId }: { group: TeamGroup; myId: string }) {
+  const lead = typeof group.leadId === 'object' ? group.leadId : null;
+  return (
+    <div className="card p-5">
+      <p className="font-semibold text-slate-900 dark:text-white mb-4">{group.name}</p>
+      <div className="space-y-2">
+        {lead && (
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/25">
+            <Avatar name={lead.name} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-amber-700 dark:text-amber-400 truncate">
+                {lead.name}
+              </p>
+            </div>
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 rounded-full flex-shrink-0">
+              Lead
+            </span>
+          </div>
+        )}
+        {group.memberIds.map((member) => {
+          const isMe = member._id === myId;
+          return (
+            <div
+              key={member._id}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm ${
+                isMe
+                  ? 'bg-brand-50 dark:bg-brand-500/10 border-brand-200 dark:border-brand-500/20'
+                  : 'bg-slate-50 dark:bg-white/[0.03] border-slate-100 dark:border-white/[0.04] opacity-60 cursor-not-allowed select-none'
+              }`}
+            >
+              <Avatar name={member.name} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className={`font-medium truncate ${isMe ? 'text-brand-700 dark:text-brand-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                  {member.name}
+                  {isMe && <span className="ml-1.5 text-xs font-normal">(you)</span>}
+                </p>
+              </div>
+              {!isMe && (
+                <span className="text-[11px] text-slate-400 flex-shrink-0">Tasks hidden</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
