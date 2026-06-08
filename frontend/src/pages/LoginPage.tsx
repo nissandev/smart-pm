@@ -6,7 +6,7 @@ import { authApi } from '../services';
 import { useAuthStore } from '../store/authStore';
 import AuthHeroPanel, { AuthMobileHeroStrip } from '../components/auth/AuthHeroPanel';
 
-const SHOW_DEMO = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO === 'true';
+const SHOW_DEMO = import.meta.env.VITE_SHOW_DEMO !== 'false';
 
 const DEMO_USERS = [
   { label: 'Admin', email: 'admin@smartpm.dev', password: 'admin123', color: 'bg-purple-500', ring: 'ring-purple-500/30' },
