@@ -150,9 +150,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
           <button
             onClick={handleLogout}
-            className="group w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-slate-500 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-all duration-150"
+            className="group w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium bg-red-50 dark:bg-red-500/[0.10] text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 transition-all duration-150"
           >
-            <span className="w-8 h-8 rounded-lg flex items-center justify-center group-hover:bg-red-100 dark:group-hover:bg-red-500/10 transition-colors">
+            <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-red-100 dark:bg-red-500/20 group-hover:bg-red-200 dark:group-hover:bg-red-500/30 transition-colors">
               <LogOut className="w-[17px] h-[17px]" />
             </span>
             Sign out

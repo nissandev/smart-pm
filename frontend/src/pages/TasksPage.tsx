@@ -201,124 +201,124 @@ export default function TasksPage() {
       />
 
       {/* View toggle + filters */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-5">
-        <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800/80 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setViewMode('board')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-md text-sm font-medium transition-all ${
-              viewMode === 'board'
-                ? 'bg-white dark:bg-[#16162b] text-brand-600 dark:text-brand-400 shadow-sm'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-            }`}
-          >
-            <LayoutGrid className="w-4 h-4" /> Board
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('list')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-md text-sm font-medium transition-all ${
-              viewMode === 'list'
-                ? 'bg-white dark:bg-[#16162b] text-brand-600 dark:text-brand-400 shadow-sm'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-            }`}
-          >
-            <List className="w-4 h-4" /> List
-          </button>
+      <div className="space-y-2.5 mb-5">
+
+        {/* Row 1: view toggle + search (always full-width) */}
+        <div className="flex items-center gap-3">
+          <div className="flex rounded-xl border border-slate-200 dark:border-white/[0.08] p-0.5 bg-slate-100/80 dark:bg-white/[0.04] flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewMode('board')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                viewMode === 'board'
+                  ? 'bg-white dark:bg-white/[0.08] text-brand-600 dark:text-brand-400 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" /> Board
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                viewMode === 'list'
+                  ? 'bg-white dark:bg-white/[0.08] text-brand-600 dark:text-brand-400 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >
+              <List className="w-4 h-4" /> List
+            </button>
+          </div>
+
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <input
+              className="input pl-9 text-sm"
+              placeholder="Search tasks…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
-        <div className="relative w-full sm:flex-1 sm:min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-          <input
-            className="input pl-9"
-            placeholder="Search by title, description, or assignee…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        {viewMode === 'list' && (
+        {/* Row 2: filter selects — horizontal scroll on mobile, wrap on desktop */}
+        <div className="flex gap-2 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {viewMode === 'list' && (
+            <select
+              className="input !w-auto flex-shrink-0 text-xs py-2 min-w-[110px] sm:w-[130px]"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">All Status</option>
+              <option value="Todo">Todo</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Completed">Completed</option>
+            </select>
+          )}
           <select
-            className="input w-36"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            className="input !w-auto flex-shrink-0 text-xs py-2 min-w-[110px] sm:w-[130px]"
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
           >
-            <option value="">All Status</option>
-            <option value="Todo">Todo</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Completed">Completed</option>
+            <option value="">All Priority</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
           </select>
-        )}
-        <select
-          className="input w-36"
-          value={priorityFilter}
-          onChange={(e) => setPriorityFilter(e.target.value)}
-        >
-          <option value="">All Priority</option>
-          <option value="High">High</option>
-          <option value="Medium">Medium</option>
-          <option value="Low">Low</option>
-        </select>
-        <select
-          className="input w-36"
-          value={deadlineFilter}
-          onChange={(e) => setDeadlineFilter(e.target.value)}
-        >
-          <option value="">All Deadlines</option>
-          <option value="upcoming">Upcoming (7d)</option>
-          <option value="overdue">Overdue</option>
-        </select>
-        <select
-          className="input w-44"
-          value={projectFilter}
-          onChange={(e) => setProjectFilter(e.target.value)}
-        >
-          <option value="">All Projects</option>
-          {projects.map((p) => (
-            <option key={p._id} value={p._id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input w-44"
-          value={assigneeFilter}
-          onChange={(e) => setAssigneeFilter(e.target.value)}
-          title="Filter by assigned member"
-        >
-          <option value="">All Members</option>
-          {assigneeOptions.map((u) => (
-            <option key={u._id} value={u._id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
-        {isAdmin && (
           <select
-            className="input w-44"
-            value={createdByFilter}
-            onChange={(e) => setCreatedByFilter(e.target.value)}
-            title="Filter by creator"
+            className="input !w-auto flex-shrink-0 text-xs py-2 min-w-[120px] sm:w-[140px]"
+            value={deadlineFilter}
+            onChange={(e) => setDeadlineFilter(e.target.value)}
           >
-            <option value="">All Creators</option>
-            {(allUsers as User[]).map((u) => (
-              <option key={u._id} value={u._id}>
-                {u.name}
-              </option>
+            <option value="">All Deadlines</option>
+            <option value="upcoming">Upcoming (7d)</option>
+            <option value="overdue">Overdue</option>
+          </select>
+          <select
+            className="input !w-auto flex-shrink-0 text-xs py-2 min-w-[130px] sm:w-[160px]"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+          >
+            <option value="">All Projects</option>
+            {projects.map((p) => (
+              <option key={p._id} value={p._id}>{p.name}</option>
             ))}
           </select>
-        )}
-        <div className="relative">
-          <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
           <select
-            className="input pl-8 w-44"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
+            className="input !w-auto flex-shrink-0 text-xs py-2 min-w-[120px] sm:w-[150px]"
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
           >
-            <option value="newest">Newest first</option>
-            <option value="deadline">Nearest deadline</option>
-            <option value="priority">Highest priority</option>
-            <option value="updated">Recently updated</option>
+            <option value="">All Members</option>
+            {assigneeOptions.map((u) => (
+              <option key={u._id} value={u._id}>{u.name}</option>
+            ))}
           </select>
+          {isAdmin && (
+            <select
+              className="input !w-auto flex-shrink-0 text-xs py-2 min-w-[120px] sm:w-[150px]"
+              value={createdByFilter}
+              onChange={(e) => setCreatedByFilter(e.target.value)}
+            >
+              <option value="">All Creators</option>
+              {(allUsers as User[]).map((u) => (
+                <option key={u._id} value={u._id}>{u.name}</option>
+              ))}
+            </select>
+          )}
+          <div className="relative flex-shrink-0">
+            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <select
+              className="input !w-auto pl-8 text-xs py-2 min-w-[145px] sm:w-[165px]"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="newest">Newest first</option>
+              <option value="deadline">Nearest deadline</option>
+              <option value="priority">Highest priority</option>
+              <option value="updated">Recently updated</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -499,10 +499,10 @@ const TaskRow = memo(function TaskRow({
             statusEditable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
           } ${
             task.status === 'Todo'
-              ? 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+              ? 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-white/[0.06] dark:text-slate-400 dark:border-white/[0.08]'
               : task.status === 'In Progress'
-              ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800'
-              : 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800'
+              ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/20'
+              : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/20'
           }`}
           value={task.status}
           disabled={!statusEditable}
@@ -522,7 +522,7 @@ const TaskRow = memo(function TaskRow({
         {editMode !== 'none' && (
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
-              className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg"
+              className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors"
               onClick={() => onEdit(task)}
               title={editMode === 'delegate' ? 'Reassign task' : 'Edit task'}
             >
@@ -530,7 +530,7 @@ const TaskRow = memo(function TaskRow({
             </button>
             {editMode === 'full' && (
               <button
-                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
                 onClick={() => onDelete(task)}
                 title="Delete task"
               >

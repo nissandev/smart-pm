@@ -13,9 +13,9 @@ import {
 import type { User, UserRole, Task, TaskPriority, TaskStatus, Project, TeamGroup } from '../types';
 
 const ROLE_STYLES: Record<UserRole, string> = {
-  admin: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  project_manager: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  member: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  admin: 'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-400',
+  project_manager: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400',
+  member: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -192,14 +192,17 @@ export default function TeamPage() {
         }
         action={
           isAdmin ? (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-end">
               {tab === 'groups' && (
-                <button className="btn-primary text-sm flex items-center gap-1.5" onClick={() => setShowCreateGroup(true)}>
-                  <Plus className="w-4 h-4" /> New Group
+                <button className="btn-primary text-sm" onClick={() => setShowCreateGroup(true)}>
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden xs:inline">New Group</span>
+                  <span className="xs:hidden">New</span>
                 </button>
               )}
               <button className="btn-secondary text-sm" onClick={() => navigate('/users')}>
-                Manage Users
+                <span className="hidden sm:inline">Manage Users</span>
+                <span className="sm:hidden">Users</span>
               </button>
             </div>
           ) : undefined
@@ -207,39 +210,27 @@ export default function TeamPage() {
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 border-b border-slate-200 dark:border-slate-700">
-        <button
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            tab === 'members'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-          onClick={() => setTab('members')}
-        >
-          <LayoutGrid className="w-4 h-4" /> Members
-        </button>
-        {isAdmin && (
+      <div className="flex mb-5 border-b border-slate-200 dark:border-white/[0.08] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {(
+          [
+            { id: 'members', label: 'Members', icon: LayoutGrid },
+            ...(isAdmin ? [{ id: 'groups', label: 'Groups', icon: UsersRound }] : []),
+            { id: 'workload', label: 'Workload', icon: BarChart2 },
+          ] as { id: typeof tab; label: string; icon: typeof LayoutGrid }[]
+        ).map(({ id, label, icon: Icon }) => (
           <button
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'groups'
+            key={id}
+            onClick={() => setTab(id)}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-5 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0 ${
+              tab === id
                 ? 'border-brand-500 text-brand-600 dark:text-brand-400'
-                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-white/[0.15]'
             }`}
-            onClick={() => setTab('groups')}
           >
-            <UsersRound className="w-4 h-4" /> Groups
+            <Icon className="w-4 h-4 flex-shrink-0" />
+            <span>{label}</span>
           </button>
-        )}
-        <button
-          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            tab === 'workload'
-              ? 'border-brand-500 text-brand-600 dark:text-brand-400'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-          onClick={() => setTab('workload')}
-        >
-          <BarChart2 className="w-4 h-4" /> Workload
-        </button>
+        ))}
       </div>
 
       {tab === 'groups' && isAdmin && (
@@ -324,20 +315,20 @@ export default function TeamPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                      <th className="pb-3 font-medium">Member</th>
-                      <th className="pb-3 font-medium text-center">Total</th>
-                      <th className="pb-3 font-medium text-center">Completed</th>
-                      <th className="pb-3 font-medium text-center">In Progress</th>
-                      <th className="pb-3 font-medium text-center">Todo</th>
-                      <th className="pb-3 font-medium">Completion</th>
+                    <tr className="text-left text-xs text-slate-400 border-b border-slate-100 dark:border-white/[0.06]">
+                      <th className="pb-3 font-semibold">Member</th>
+                      <th className="pb-3 font-semibold text-center">Total</th>
+                      <th className="pb-3 font-semibold text-center">Completed</th>
+                      <th className="pb-3 font-semibold text-center hidden sm:table-cell">In Progress</th>
+                      <th className="pb-3 font-semibold text-center hidden sm:table-cell">Todo</th>
+                      <th className="pb-3 font-semibold">Completion</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  <tbody className="divide-y divide-slate-100 dark:divide-white/[0.04]">
                     {workload.map((m: any) => {
                       const pct = m.total > 0 ? Math.round((m.completed / m.total) * 100) : 0;
                       return (
-                        <tr key={m.name} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <tr key={m.name} className="hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors">
                           <td className="py-3 pr-4">
                             <div className="flex items-center gap-2">
                               <Avatar name={m.name} size="sm" />
@@ -348,15 +339,15 @@ export default function TeamPage() {
                           <td className="py-3 text-center">
                             <span className="text-emerald-600 dark:text-emerald-400 font-medium">{m.completed}</span>
                           </td>
-                          <td className="py-3 text-center">
+                          <td className="py-3 text-center hidden sm:table-cell">
                             <span className="text-blue-600 dark:text-blue-400 font-medium">{m.inProgress}</span>
                           </td>
-                          <td className="py-3 text-center">
+                          <td className="py-3 text-center hidden sm:table-cell">
                             <span className="text-slate-500 dark:text-slate-400">{m.todo}</span>
                           </td>
                           <td className="py-3">
-                            <div className="flex items-center gap-2 min-w-[100px]">
-                              <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div className="flex items-center gap-2 min-w-[80px] sm:min-w-[100px]">
+                              <div className="flex-1 h-1.5 bg-slate-100 dark:bg-white/[0.08] rounded-full overflow-hidden">
                                 <div className="h-full bg-brand-500 rounded-full" style={{ width: `${pct}%` }} />
                               </div>
                               <span className="text-xs text-slate-400 w-7 text-right">{pct}%</span>
@@ -372,48 +363,50 @@ export default function TeamPage() {
           )}
 
           {/* Workload filters */}
-          <div className="flex flex-wrap gap-3 items-center">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
               <Filter className="w-3.5 h-3.5" /> Filter tasks:
             </div>
-            <select
-              className="input py-1.5 text-xs w-auto min-w-[140px]"
-              value={wlProject}
-              onChange={(e) => setWlProject(e.target.value)}
-            >
-              <option value="">All Projects</option>
-              {(projects as Project[]).map((p) => (
-                <option key={p._id} value={p._id}>{p.name}</option>
-              ))}
-            </select>
-            <select
-              className="input py-1.5 text-xs w-auto min-w-[120px]"
-              value={wlStatus}
-              onChange={(e) => setWlStatus(e.target.value)}
-            >
-              <option value="">All Status</option>
-              <option value="Todo">Todo</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Completed">Completed</option>
-            </select>
-            <select
-              className="input py-1.5 text-xs w-auto min-w-[120px]"
-              value={wlPriority}
-              onChange={(e) => setWlPriority(e.target.value)}
-            >
-              <option value="">All Priority</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
-            </select>
-            {(wlProject || wlStatus || wlPriority) && (
-              <button
-                className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
-                onClick={() => { setWlProject(''); setWlStatus(''); setWlPriority(''); }}
+            <div className="flex gap-2 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <select
+                className="input !w-auto flex-shrink-0 py-1.5 text-xs min-w-[130px] sm:w-[150px]"
+                value={wlProject}
+                onChange={(e) => setWlProject(e.target.value)}
               >
-                Clear filters
-              </button>
-            )}
+                <option value="">All Projects</option>
+                {(projects as Project[]).map((p) => (
+                  <option key={p._id} value={p._id}>{p.name}</option>
+                ))}
+              </select>
+              <select
+                className="input !w-auto flex-shrink-0 py-1.5 text-xs min-w-[110px] sm:w-[130px]"
+                value={wlStatus}
+                onChange={(e) => setWlStatus(e.target.value)}
+              >
+                <option value="">All Status</option>
+                <option value="Todo">Todo</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+              </select>
+              <select
+                className="input !w-auto flex-shrink-0 py-1.5 text-xs min-w-[110px] sm:w-[130px]"
+                value={wlPriority}
+                onChange={(e) => setWlPriority(e.target.value)}
+              >
+                <option value="">All Priority</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+              {(wlProject || wlStatus || wlPriority) && (
+                <button
+                  className="flex-shrink-0 text-xs text-brand-600 dark:text-brand-400 hover:underline px-1"
+                  onClick={() => { setWlProject(''); setWlStatus(''); setWlPriority(''); }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Member-wise task groups */}
@@ -444,7 +437,7 @@ export default function TeamPage() {
                   {memberTasks.map((task) => (
                     <div
                       key={task._id}
-                      className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-sm"
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-transparent dark:border-white/[0.04] text-sm"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-slate-800 dark:text-slate-200 truncate">{task.title}</p>
@@ -510,14 +503,14 @@ function GroupCard({
         </div>
         <div className="flex gap-1 flex-shrink-0">
           <button
-            className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg"
+            className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors"
             onClick={onEdit}
             title="Edit group"
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
           <button
-            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
             onClick={onDelete}
             title="Delete group"
           >

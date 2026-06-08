@@ -39,8 +39,8 @@ const COLUMNS: {
     shortLabel: 'To Do',
     icon: Circle,
     accent: 'border-t-slate-400',
-    tabActive: 'bg-slate-700 dark:bg-slate-300 text-white dark:text-slate-900',
-    headerBg: 'bg-slate-50 dark:bg-slate-800/60',
+    tabActive: 'bg-slate-600 dark:bg-white/[0.12] text-white',
+    headerBg: 'bg-slate-50/80 dark:bg-white/[0.02]',
     dropRing: 'ring-slate-400/50',
   },
   {
@@ -49,8 +49,8 @@ const COLUMNS: {
     shortLabel: 'Active',
     icon: Loader2,
     accent: 'border-t-blue-500',
-    tabActive: 'bg-blue-600 text-white',
-    headerBg: 'bg-blue-50/80 dark:bg-blue-950/30',
+    tabActive: 'bg-blue-600 dark:bg-blue-500/80 text-white',
+    headerBg: 'bg-blue-50/80 dark:bg-blue-500/[0.06]',
     dropRing: 'ring-blue-400/50',
   },
   {
@@ -59,8 +59,8 @@ const COLUMNS: {
     shortLabel: 'Done',
     icon: CheckCircle2,
     accent: 'border-t-emerald-500',
-    tabActive: 'bg-emerald-600 text-white',
-    headerBg: 'bg-emerald-50/80 dark:bg-emerald-950/30',
+    tabActive: 'bg-emerald-600 dark:bg-emerald-500/80 text-white',
+    headerBg: 'bg-emerald-50/80 dark:bg-emerald-500/[0.06]',
     dropRing: 'ring-emerald-400/50',
   },
 ];
@@ -232,7 +232,7 @@ export function TaskKanbanBoard({
         {/* Mobile: column tabs + swipe nav */}
         {isMobile && (
           <div className="mb-3 space-y-2">
-            <div className="flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80">
+            <div className="flex gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06]">
               {COLUMNS.map((col) => (
                 <button
                   key={col.id}
@@ -377,7 +377,7 @@ const KanbanColumn = memo(function KanbanColumn({
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             {column.label}
           </h3>
-          <span className="ml-auto text-xs font-medium tabular-nums px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400">
+          <span className="ml-auto text-xs font-medium tabular-nums px-2 py-0.5 rounded-full bg-white/80 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400">
             {tasks.length}
           </span>
         </div>
@@ -392,7 +392,7 @@ const KanbanColumn = memo(function KanbanColumn({
             ? `ring-2 ${column.dropRing} bg-brand-50/30 dark:bg-brand-950/20 border-brand-300 dark:border-brand-700`
             : isMobile
             ? ''
-            : 'bg-slate-100/70 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700/50'
+            : 'bg-slate-50/60 dark:bg-white/[0.02] border-slate-200 dark:border-white/[0.06]'
         }`}
       >
         <div className={`space-y-2.5 ${isMobile ? '' : 'min-h-[80px]'}`}>
@@ -403,7 +403,7 @@ const KanbanColumn = memo(function KanbanColumn({
               } ${
                 highlighted
                   ? 'border-brand-300 dark:border-brand-600 text-brand-500'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-400'
+                  : 'border-slate-200 dark:border-white/[0.08] text-slate-400'
               }`}
             >
               {isMobile ? (
@@ -499,7 +499,7 @@ function MobileStatusActions({
   const flow = STATUS_FLOW[task.status];
 
   return (
-    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.06]">
       {flow.prev && (
         <button
           type="button"
@@ -507,7 +507,7 @@ function MobileStatusActions({
             e.stopPropagation();
             onStatusChange(task, flow.prev!);
           }}
-          className="flex-1 min-h-[40px] px-2 py-2 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 active:scale-[0.98] transition-transform"
+          className="flex-1 min-h-[40px] px-2 py-2 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-slate-300 active:scale-[0.98] transition-transform"
         >
           ← {flow.prevLabel}
         </button>
@@ -564,11 +564,11 @@ const KanbanCard = memo(function KanbanCard({
 
   return (
     <div
-      className={`group/card bg-white dark:bg-[#16162b] rounded-xl border shadow-sm transition-all duration-200 ${
+      className={`group/card bg-white dark:bg-[#111127] rounded-xl border shadow-sm transition-all duration-200 ${
         isDragging
-          ? 'shadow-xl ring-2 ring-brand-400/60 rotate-[2deg] scale-[1.02] border-brand-300 dark:border-brand-600'
-          : 'border-slate-200 dark:border-slate-700/60 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 active:scale-[0.99]'
-      } ${task.status === 'Completed' ? 'opacity-90' : ''}`}
+          ? 'shadow-xl ring-2 ring-brand-400/60 rotate-[2deg] scale-[1.02] border-brand-300 dark:border-brand-500/50'
+          : 'border-slate-200 dark:border-white/[0.07] hover:shadow-md hover:border-slate-300 dark:hover:border-white/[0.12] active:scale-[0.99]'
+      } ${task.status === 'Completed' ? 'opacity-80' : ''}`}
     >
       <div className={isMobile ? 'p-4' : 'p-3.5'}>
         <div className="flex items-start gap-2">
@@ -626,7 +626,7 @@ const KanbanCard = memo(function KanbanCard({
                   >
                     <button
                       type="button"
-                      className="p-2 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center"
+                      className="p-2 text-slate-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center transition-colors"
                       onClick={(e) => { e.stopPropagation(); onEdit(task); }}
                       title={editMode === 'delegate' ? 'Reassign' : 'Edit'}
                     >
@@ -635,7 +635,7 @@ const KanbanCard = memo(function KanbanCard({
                     {editMode === 'full' && (
                       <button
                         type="button"
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center"
+                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center transition-colors"
                         onClick={(e) => { e.stopPropagation(); onDelete(task); }}
                         title="Delete"
                       >
